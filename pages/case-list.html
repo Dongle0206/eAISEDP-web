@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Case 管理 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    /* 本页局部样式（不污染平台全局；颜色沿用平台主色 #1677ff，未硬编码业务色值） */
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .status-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+    .status-in_progress { background:#e6f4ff; color:#1677ff; }
+    .status-completed { background:#f6ffed; color:#52c41a; }
+    .status-pending { background:#fff7e6; color:#faad14; }
+    .status-unknown { background:#f5f5f5; color:#999; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .case-code { color:#1677ff; font-weight:600; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">Case 管理</h5>
+      <div class="spacer"></div>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">状态：</span>
+        <select id="statusFilter" class="form-select form-select-sm" style="width:auto;">
+          <option value="">全部</option>
+          <option value="in_progress">进行中</option>
+          <option value="completed">已完成</option>
+          <option value="pending">待处理</option>
+        </select>
+      </label>
+      <button id="newCaseBtn" class="btn btn-primary btn-sm">+ 新建 Case</button>
+    </div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:140px;">编号</th>
+            <th>标题</th>
+            <th style="width:110px;">状态</th>
+            <th style="width:180px;">创建时间</th>
+            <th style="width:110px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="caseTbody">
+          <tr class="empty-row"><td colspan="5">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pager">
+      <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+      <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+      <span id="pageNumbers" style="font-size:13px;"></span>
+      <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+      <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="10">10/页</option>
+        <option value="20">20/页</option>
+        <option value="50">50/页</option>
+      </select>
+    </div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      // 路由保护：iframe/ajax 加载本页时，未登录跳登录页
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const STATUS_TEXT = { in_progress: '进行中', completed: '已完成', pending: '待处理' };
+      const STATUS_CLASS = { in_progress: 'status-in_progress', completed: 'status-completed', pending: 'status-pending' };
+
+      const state = { page: 1, size: 10, status: '', total: 0 };
+
+      // 调 GET /api/v1/cases?page=&size=&status=
+      function loadList() {
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.status) params.set('status', state.status);
+        $('#caseTbody').html('<tr class="empty-row"><td colspan="5">加载中...</td></tr>');
+        API.bizGet('/api/v1/cases?' + params.toString()).done(function (resp) {
+          if (resp.code !== 0) { renderError(resp.msg || '加载失败'); return; }
+          const data = resp.data || {};
+          const list = data.list || data.items || data.records || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          renderError((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'));
+        });
+      }
+
+      function renderError(msg) {
+        $('#caseTbody').html('<tr class="empty-row"><td colspan="5">' + escapeHtml(msg) + '</td></tr>');
+        $('#pageInfo').text('');
+        $('#pageNumbers').html('');
+      }
+
+      function renderTable(list) {
+        if (!list.length) {
+          $('#caseTbody').html('<tr class="empty-row"><td colspan="5">暂无 Case，点击右上角"新建 Case"创建</td></tr>');
+          return;
+        }
+        const rows = list.map(function (c) {
+          const status = c.status || 'unknown';
+          const cls = STATUS_CLASS[status] || 'status-unknown';
+          const txt = STATUS_TEXT[status] || status;
+          return '<tr>'
+            + '<td class="case-code">' + escapeHtml(c.caseCode || c.code || c.id) + '</td>'
+            + '<td>' + escapeHtml(c.title || '') + '</td>'
+            + '<td><span class="status-badge ' + cls + '">' + txt + '</span></td>'
+            + '<td>' + escapeHtml(fmtTime(c.createdAt || c.createTime)) + '</td>'
+            + '<td><button class="btn btn-sm btn-outline-primary view-btn" data-id="' + escapeHtml(c.id) + '">查看</button></td>'
+            + '</tr>';
+        });
+        $('#caseTbody').html(rows.join(''));
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        const cur = state.page;
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + cur + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', cur <= 1);
+        $('#nextBtn').prop('disabled', cur >= totalPages);
+        // 页码（最多显示 7 个，含首尾与当前相邻）
+        const nums = buildPageNums(cur, totalPages);
+        const html = nums.map(function (n) {
+          if (n === '...') return '<span class="mx-1 text-muted">…</span>';
+          const active = n === cur ? 'btn-primary' : 'btn-outline-secondary';
+          return '<button class="btn btn-sm ' + active + ' page-num-btn" data-page="' + n + '">' + n + '</button>';
+        }).join(' ');
+        $('#pageNumbers').html(html);
+      }
+
+      function buildPageNums(cur, total) {
+        const arr = [];
+        const push = function (n) { if (arr.indexOf(n) === -1) arr.push(n); };
+        push(1);
+        if (cur - 1 > 2) arr.push('...');
+        for (let n = cur - 1; n <= cur + 1; n++) { if (n > 1 && n < total) push(n); }
+        if (cur + 1 < total - 1) arr.push('...');
+        if (total > 1) push(total);
+        return arr;
+      }
+
+      // XSS 防护：转义用户/后端可控文本
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function fmtTime(t) {
+        if (!t) return '-';
+        // 兼容时间戳或字符串
+        const d = typeof t === 'number' ? new Date(t) : new Date(t);
+        if (isNaN(d.getTime())) return String(t);
+        const p = function (n) { return n < 10 ? '0' + n : n; };
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+          + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+      }
+
+      // 事件绑定
+      $('#statusFilter').on('change', function () { state.status = $(this).val(); state.page = 1; loadList(); });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+      $('#pageNumbers').on('click', '.page-num-btn', function () { state.page = parseInt($(this).data('page'), 10); loadList(); });
+      $('#caseTbody').on('click', '.view-btn', function () { goDetail($(this).data('id')); });
+      $('#newCaseBtn').on('click', function () { goDetail('new'); });
+
+      function goDetail(caseId) {
+        // iframe 内：走父框架路由；独立访问：当前窗口跳转
+        if (window.self !== window.top && window.parent && window.parent.eaiselpNav) {
+          window.parent.eaiselpNav('case-detail', 'Case 详情', 'pages/case-detail.html?caseId=' + encodeURIComponent(caseId));
+        } else {
+          location.href = 'case-detail.html?caseId=' + encodeURIComponent(caseId);
+        }
+      }
+
+      loadList();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>eAISEDP 登录</title>
+  <link rel="stylesheet" href="assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body class="login-bg">
+  <div class="login-wrapper">
+    <div class="login-card">
+      <div class="login-logo">eAISEDP</div>
+      <div class="login-subtitle">企业级 AI 软件工程平台</div>
+      <div class="login-subtitle-en">AI-Powered Software Engineering Platform</div>
+
+      <form id="loginForm" class="mt-4">
+        <div class="mb-3 input-group">
+          <span class="input-group-text">用户</span>
+          <input type="text" id="username" class="form-control" placeholder="用户名" maxlength="64" required>
+        </div>
+        <div class="mb-3 input-group">
+          <span class="input-group-text">密码</span>
+          <input type="password" id="password" class="form-control" placeholder="密码" maxlength="128" required>
+          <span class="input-group-text cursor-pointer" id="togglePwd">显</span>
+        </div>
+        <button type="submit" id="loginBtn" class="btn btn-primary w-100">登 录</button>
+      </form>
+
+      <div id="errorTip" class="alert alert-danger mt-3 d-none" role="alert"></div>
+
+      <div class="login-footer">
+        © 2026 eAISELP · v0.2.0-M2
+        <span class="http-tip">（开发期 HTTP 传输，生产请启用 HTTPS）</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/js/jquery-3.7.1.min.js"></script>
+  <script src="assets/js/bootstrap.bundle.min.js"></script>
+  <script src="config.js"></script>
+  <script src="assets/js/i18n.js"></script>
+  <script src="assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const I18N = window.EAISELP_I18N;
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+
+      function showError(msg) {
+        $('#errorTip').text(msg).removeClass('d-none');
+        setTimeout(function () { $('#errorTip').addClass('d-none'); }, 3000);
+      }
+      function setLoading(loading) {
+        $('#loginBtn').prop('disabled', loading).text(loading ? '登录中...' : '登 录');
+        $('#username,#password').prop('readonly', loading);
+      }
+
+      // 密码可见切换
+      $('#togglePwd').on('click', function () {
+        const $pwd = $('#password');
+        $pwd.attr('type', $pwd.attr('type') === 'password' ? 'text' : 'password');
+      });
+
+      $('#loginForm').on('submit', function (e) {
+        e.preventDefault();
+        const u = $('#username').val().trim();
+        const p = $('#password').val();
+        if (!u || !p) { showError('请输入用户名和密码'); return; }
+        setLoading(true);
+        API.login(u, p).done(function (resp) {
+          if (resp.code === 0) {
+            API.setToken(resp.data.token);
+            setTimeout(function () { location.href = CFG.INDEX_PAGE; }, 200);
+          } else {
+            // 40001 凭据错误 / 40002 账户禁用 / 50000 服务异常
+            showError(resp.msg || '登录失败');
+            $('#password').val('').focus();
+          }
+        }).fail(function () {
+          showError('网络异常，请检查连接');
+        }).always(function () {
+          setLoading(false);
+        });
+      });
+    });
+  </script>
+</body>
+</html>

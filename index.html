@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>eAISEDP</title>
+  <link rel="stylesheet" href="assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="assets/css/app.css">
+</head>
+<body class="app-bg">
+  <!-- 加载态 -->
+  <div id="loading" class="app-loading">
+    <div class="spinner-border text-primary"></div>
+    <div class="mt-2">正在加载...</div>
+  </div>
+
+  <!-- 主框架（恢复登录态后显示）-->
+  <div id="app" class="d-none">
+    <!-- 顶部栏 -->
+    <header class="app-header">
+      <div class="app-logo">eAISEDP</div>
+      <div class="app-title">企业级 AI 软件工程平台</div>
+      <div class="app-user ms-auto">
+        <span id="userName"></span>
+        <span id="roleBadge" class="badge bg-secondary ms-2"></span>
+        <button id="logoutBtn" class="btn btn-sm btn-outline-light ms-3">退出</button>
+      </div>
+    </header>
+
+    <div class="app-body">
+      <!-- 左侧导航 -->
+      <nav class="app-sidebar" id="sidebar"></nav>
+
+      <!-- 右侧内容区 -->
+      <main class="app-content">
+        <!-- Tab 栏 -->
+        <div class="app-tabs" id="tabBar"></div>
+        <!-- 内容容器 -->
+        <div class="app-tab-content" id="tabContent"></div>
+      </main>
+    </div>
+  </div>
+
+  <script src="assets/js/jquery-3.7.1.min.js"></script>
+  <script src="assets/js/bootstrap.bundle.min.js"></script>
+  <script src="config.js"></script>
+  <script src="assets/js/i18n.js"></script>
+  <script src="assets/js/api.js"></script>
+  <script src="assets/js/auth.js"></script>
+  <script src="assets/js/menu.js"></script>
+  <script>
+    $(function () {
+      const AUTH = window.EAISELP_AUTH;
+      const MENU = window.EAISELP_MENU;
+
+      // 路由保护：未登录跳登录页 + 恢复登录态
+      AUTH.restore(function (user) {
+        $('#loading').addClass('d-none');
+        $('#app').removeClass('d-none');
+        renderFrame(user);
+      });
+
+      function renderFrame(user) {
+        $('#userName').text(user.displayName || user.username);
+        $('#roleBadge').text(MENU.primaryRoleName(user.roleCodes));
+        const menus = MENU.build(user.roleCodes);
+        renderSidebar(menus);
+        // 默认激活第一个导航项
+        if (menus.length) openTab(menus[0]);
+      }
+
+      function renderSidebar(menus) {
+        const $sb = $('#sidebar').empty();
+        menus.forEach(function (m) {
+          $('<a href="javascript:void(0)" class="nav-link"></a>')
+            .text(m.title).data('menu', m)
+            .on('click', function () { openTab($(this).data('menu')); })
+            .appendTo($sb);
+        });
+        // 底部退出
+        $('<hr>').appendTo($sb);
+        $('<a href="javascript:void(0)" class="nav-link text-danger"></a>')
+          .text('退出登录').on('click', confirmLogout).appendTo($sb);
+      }
+
+      const openedTabs = {};
+      function openTab(menu) {
+        if (openedTabs[menu.key]) {
+          activateTab(menu.key); return;
+        }
+        openedTabs[menu.key] = menu;
+        // Tab 标签
+        $('<span class="app-tab"></span>').attr('data-key', menu.key)
+          .html(menu.title + ' <span class="tab-close">×</span>')
+          .appendTo('#tabBar')
+          .on('click', function (e) {
+            if ($(e.target).hasClass('tab-close')) { closeTab(menu.key); }
+            else { activateTab(menu.key); }
+          });
+        // 内容：有 page 就 iframe 加载子页面，否则占位
+        var $pane = $('<div class="tab-pane"></div>').attr('data-key', menu.key).appendTo('#tabContent');
+        if (menu.page) {
+          $('<iframe></iframe>').attr('src', menu.page)
+            .css({ width: '100%', height: '100%', border: 'none' }).appendTo($pane);
+        } else {
+          $pane.html('<div class="placeholder"><div class="placeholder-icon">⚙</div><div>建设中</div><div class="placeholder-sub">该功能将在后续版本提供</div></div>');
+        }
+        activateTab(menu.key);
+      }
+      function activateTab(key) {
+        $('.app-tab').removeClass('active');
+        $('.tab-pane').removeClass('active');
+        $('.app-tab[data-key="' + key + '"]').addClass('active');
+        $('.tab-pane[data-key="' + key + '"]').addClass('active');
+      }
+      function closeTab(key) {
+        delete openedTabs[key];
+        $('.app-tab[data-key="' + key + '"], .tab-pane[data-key="' + key + '"]').remove();
+        // 激活剩余第一个
+        const first = Object.keys(openedTabs)[0];
+        if (first) activateTab(first);
+      }
+
+      // 暴露导航函数给子页面（iframe 内）
+      window.eaiselpNav = function(key, title, page) {
+        openTab({ key: key, title: title, page: page });
+      };
+
+      function confirmLogout() {
+        if (confirm('确认退出登录？')) AUTH.logout();
+      }
+      $('#logoutBtn').on('click', confirmLogout);
+    });
+  </script>
+</body>
+</html>

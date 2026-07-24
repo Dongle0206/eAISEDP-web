@@ -1,0 +1,36 @@
+/* eAISEDP 平台样式补丁（M2 Phase 1） */
+/* 注：Bootstrap 5.3.3 提供基础组件，本文件仅补平台定制（登录页/主框架布局） */
+
+/* 登录页 */
+.login-bg { background:#f0f2f5; min-height:100vh; display:flex; align-items:center; justify-content:center; }
+.login-wrapper { width:100%; max-width:400px; padding:20px; }
+.login-card { background:#fff; border-radius:8px; padding:40px 30px; box-shadow:0 2px 12px rgba(0,0,0,.1); text-align:center; }
+.login-logo { font-size:32px; font-weight:bold; color:#1677ff; }
+.login-subtitle { color:#333; margin-top:8px; }
+.login-subtitle-en { color:#999; font-size:12px; }
+.login-footer { margin-top:24px; font-size:12px; color:#999; }
+.http-tip { color:#faad14; margin-left:8px; }
+.cursor-pointer { cursor:pointer; }
+
+/* 主框架 */
+.app-bg { min-width:1024px; }
+.app-header { height:60px; background:#001529; color:#fff; display:flex; align-items:center; padding:0 20px; }
+.app-logo { font-size:20px; font-weight:bold; }
+.app-title { margin-left:16px; color:rgba(255,255,255,.65); }
+.app-user { display:flex; align-items:center; }
+.app-body { display:flex; height:calc(100vh - 60px); }
+.app-sidebar { width:220px; background:#fff; border-right:1px solid #f0f0f0; padding:12px; overflow-y:auto; }
+.app-sidebar .nav-link { padding:10px 12px; color:#333; border-radius:4px; cursor:pointer; }
+.app-sidebar .nav-link:hover { background:#f5f5f5; }
+.app-content { flex:1; display:flex; flex-direction:column; background:#f0f2f5; }
+.app-tabs { height:40px; background:#fff; border-bottom:1px solid #f0f0f0; display:flex; align-items:center; padding:0 8px; }
+.app-tab { padding:6px 12px; margin:0 4px; background:#f5f5f5; border-radius:4px; cursor:pointer; font-size:13px; }
+.app-tab.active { background:#1677ff; color:#fff; }
+.tab-close { margin-left:8px; color:#999; }
+.app-tab-content { flex:1; overflow:auto; }
+.tab-pane { display:none; padding:20px; height:100%; }
+.tab-pane.active { display:block; }
+.placeholder { text-align:center; color:#999; margin-top:80px; }
+.placeholder-icon { font-size:48px; }
+.placeholder-sub { font-size:13px; margin-top:8px; }
+.app-loading { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#fff; }

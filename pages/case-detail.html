@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Case 详情 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; max-width:1100px; margin:0 auto; }
+    .section { background:#fff; border-radius:6px; padding:16px 20px; margin-bottom:16px; }
+    .section h6 { color:#1677ff; border-left:3px solid #1677ff; padding-left:8px; margin-bottom:14px; }
+    .info-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px 24px; font-size:14px; }
+    .info-grid .label { color:#999; }
+    .status-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+    .status-in_progress { background:#e6f4ff; color:#1677ff; }
+    .status-completed { background:#f6ffed; color:#52c41a; }
+    .status-pending { background:#fff7e6; color:#faad14; }
+    .status-failed { background:#fff1f0; color:#ff4d4f; }
+    .status-running { background:#e6f4ff; color:#1677ff; }
+    .status-unknown { background:#f5f5f5; color:#999; }
+    .timeline { position:relative; padding-left:20px; }
+    .timeline::before { content:''; position:absolute; left:5px; top:4px; bottom:4px; width:2px; background:#e8e8e8; }
+    .tl-item { position:relative; padding:0 0 20px 16px; }
+    .tl-item::before { content:''; position:absolute; left:-19px; top:4px; width:10px; height:10px; border-radius:50%; background:#1677ff; border:2px solid #fff; box-shadow:0 0 0 1px #1677ff; }
+    .tl-item.failed::before { background:#ff4d4f; box-shadow:0 0 0 1px #ff4d4f; }
+    .tl-meta { font-size:12px; color:#999; margin-bottom:4px; }
+    .tl-meta .role { color:#1677ff; font-weight:600; margin-right:8px; }
+    .tl-output { background:#fafafa; border:1px solid #f0f0f0; border-radius:4px; padding:10px 12px; font-size:13px; max-height:320px; overflow:auto; margin-top:6px; }
+    .tl-output img { max-width:100%; }
+    /* markdown 渲染微调 */
+    .tl-output h1,.tl-output h2,.tl-output h3 { font-size:15px; margin:8px 0 4px; }
+    .tl-output pre { background:#f5f5f5; padding:8px; border-radius:4px; overflow:auto; }
+    .tl-output code { background:#f0f0f0; padding:1px 4px; border-radius:3px; font-size:12px; }
+    .tl-output pre code { background:none; padding:0; }
+    .badge-token { background:#f9f0ff; color:#722ed1; }
+    .badge-model { background:#e6fffb; color:#08979c; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+
+    <!-- 新建 Case 表单（caseId=new） -->
+    <div id="createForm" class="section d-none">
+      <h6>新建 Case</h6>
+      <form id="createFormInner">
+        <div class="mb-3">
+          <label class="form-label">标题 <span class="text-danger">*</span></label>
+          <input type="text" id="newTitle" class="form-control" maxlength="200" placeholder="简明描述这个 Case 的目标" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">描述</label>
+          <textarea id="newDesc" class="form-control" rows="5" maxlength="2000" placeholder="补充背景、范围、验收标准等"></textarea>
+        </div>
+        <button type="submit" id="createBtn" class="btn btn-primary">创建并进入详情</button>
+        <button type="button" id="cancelCreateBtn" class="btn btn-outline-secondary">返回列表</button>
+      </form>
+    </div>
+
+    <!-- Case 详情（已有 caseId） -->
+    <div id="detailView" class="d-none">
+
+      <!-- 上：基本信息 -->
+      <div class="section">
+        <h6 id="caseTitleH">Case 详情</h6>
+        <div class="info-grid">
+          <div><span class="label">编号：</span><span id="caseCode"></span></div>
+          <div><span class="label">状态：</span><span id="caseStatus"></span></div>
+          <div><span class="label">创建时间：</span><span id="caseCreatedAt"></span></div>
+          <div><span class="label">创建人：</span><span id="caseCreator"></span></div>
+        </div>
+        <div class="mt-2"><span class="label">描述：</span><span id="caseDesc" style="white-space:pre-wrap;"></span></div>
+        <button class="btn btn-sm btn-outline-secondary mt-2" id="backListBtn">← 返回列表</button>
+      </div>
+
+      <!-- 中：发起派生 -->
+      <div class="section">
+        <h6>发起派生</h6>
+        <form id="deriveForm">
+          <div class="row g-2 mb-2">
+            <div class="col-md-4">
+              <label class="form-label small">角色</label>
+              <select id="roleSelect" class="form-select form-select-sm">
+                <option value="po">产品负责人（PO）</option>
+                <option value="ux">体验设计（UX）</option>
+                <option value="ba">业务分析（BA）</option>
+                <option value="dev">开发（Dev）</option>
+                <option value="reviewer">审查（Reviewer）</option>
+                <option value="qa">测试（QA）</option>
+                <option value="ops">运维（Ops）</option>
+              </select>
+            </div>
+            <div class="col-md-8 d-flex align-items-end">
+              <small class="text-muted">选择角色后，由对应专家子代理派生执行任务。</small>
+            </div>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">任务描述 <span class="text-danger">*</span></label>
+            <textarea id="taskInput" class="form-control" rows="4" maxlength="2000" placeholder="例如：基于当前需求，产出技术方案设计文档（含数据模型与接口契约）" required></textarea>
+          </div>
+          <button type="submit" id="deriveBtn" class="btn btn-primary btn-sm">发起派生</button>
+        </form>
+        <div id="deriveTip" class="alert d-none mt-2 mb-0 py-2"></div>
+      </div>
+
+      <!-- 下：派生时间线 -->
+      <div class="section">
+        <h6>派生时间线</h6>
+        <div id="timeline" class="timeline">
+          <div class="text-muted" style="font-size:13px;">加载中...</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <!-- Markdown 渲染（产出摘要常含 Markdown）。库缺失时降级为纯文本 -->
+  <script src="../assets/js/lib/marked.min.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const STATUS_TEXT = { in_progress: '进行中', completed: '已完成', pending: '待处理', running: '运行中', failed: '失败', success: '成功' };
+      const STATUS_CLASS = { in_progress: 'status-in_progress', completed: 'status-completed', pending: 'status-pending', running: 'status-running', failed: 'status-failed', success: 'status-completed' };
+
+      // 取 caseId 参数
+      const params = new URLSearchParams(location.search);
+      const caseId = (params.get('caseId') || '').trim();
+
+      if (caseId === 'new' || caseId === '') {
+        // 新建模式
+        $('#createForm').removeClass('d-none');
+        bindCreate();
+      } else {
+        // 详情模式
+        $('#detailView').removeClass('d-none');
+        loadDetail(caseId);
+        loadTimeline(caseId);
+        bindDerive(caseId);
+      }
+
+      $('#backListBtn,#cancelCreateBtn').on('click', function () { goList(); });
+
+      // ---- 新建 Case ----
+      function bindCreate() {
+        $('#createFormInner').on('submit', function (e) {
+          e.preventDefault();
+          const title = $('#newTitle').val().trim();
+          const desc = $('#newDesc').val().trim();
+          if (!title) { showCreateTip('请输入标题', 'danger'); return; }
+          const $btn = $('#createBtn').prop('disabled', true).text('创建中...');
+          // POST /api/v1/cases {title, description}
+          bizPost('/api/v1/cases', { title: title, description: desc })
+            .done(function (resp) {
+              if (resp.code === 0) {
+                const newId = (resp.data && (resp.data.id || resp.data.caseId)) || '';
+                showCreateTip('创建成功，正在跳转详情...', 'success');
+                // 跳详情页（刷新 caseId 参数）
+                setTimeout(function () {
+                  location.href = 'case-detail.html?caseId=' + encodeURIComponent(newId);
+                }, 400);
+              } else {
+                showCreateTip(resp.msg || '创建失败', 'danger');
+              }
+            })
+            .fail(function (xhr) {
+              showCreateTip((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'), 'danger');
+            })
+            .always(function () { $btn.prop('disabled', false).text('创建并进入详情'); });
+        });
+      }
+      function showCreateTip(msg, type) {
+        $('#deriveTip').length; // noop
+        // 复用顶部提示位（新建态下 derive 区不可见），这里用临时 alert 插入
+        let $tip = $('#createTip');
+        if (!$tip.length) {
+          $tip = $('<div id="createTip" class="alert mt-2 py-2"></div>').insertAfter('#createFormInner');
+        }
+        $tip.removeClass('alert-success alert-danger').addClass(type === 'success' ? 'alert-success' : 'alert-danger')
+          .text(msg).removeClass('d-none');
+        if (type === 'success') { /* 保持 */ } else { setTimeout(function () { $tip.addClass('d-none'); }, 4000); }
+      }
+
+      // ---- 详情 ----
+      function loadDetail(id) {
+        API.bizGet('/api/v1/cases/' + encodeURIComponent(id)).done(function (resp) {
+          if (resp.code !== 0) { $('#caseTitleH').text('加载失败：' + (resp.msg || '')); return; }
+          const c = resp.data || {};
+          $('#caseTitleH').text(c.title || 'Case 详情');
+          $('#caseCode').text(c.caseCode || c.code || c.id || '-');
+          $('#caseCreatedAt').text(fmtTime(c.createdAt || c.createTime));
+          $('#caseCreator').text(c.creator || c.createdBy || '-');
+          $('#caseDesc').text(c.description || c.desc || '-');
+          const st = c.status || 'unknown';
+          $('#caseStatus').html('<span class="status-badge ' + (STATUS_CLASS[st] || 'status-unknown') + '">' + (STATUS_TEXT[st] || st) + '</span>');
+        }).fail(function (xhr) {
+          $('#caseTitleH').text('加载失败（' + xhr.status + '）');
+        });
+      }
+
+      // ---- 时间线 ----
+      function loadTimeline(id) {
+        const $tl = $('#timeline').html('<div class="text-muted" style="font-size:13px;">加载中...</div>');
+        API.bizGet('/api/v1/cases/' + encodeURIComponent(id) + '/derivations').done(function (resp) {
+          if (resp.code !== 0) { $tl.html('<div class="text-danger" style="font-size:13px;">' + escapeHtml(resp.msg || '加载失败') + '</div>'); return; }
+          const data = resp.data || {};
+          const list = data.list || data.items || data.records || (Array.isArray(data) ? data : []);
+          if (!list.length) { $tl.html('<div class="text-muted" style="font-size:13px;">暂无派生记录，在上方发起第一个派生。</div>'); return; }
+          const items = list.map(renderTlItem).join('');
+          $tl.html(items);
+        }).fail(function (xhr) {
+          $tl.html('<div class="text-danger" style="font-size:13px;">请求失败（' + xhr.status + '）</div>');
+        });
+      }
+
+      function renderTlItem(d) {
+        const role = d.role || d.roleCode || '-';
+        const model = d.model || d.modelName || '';
+        const tokens = d.tokens != null ? d.tokens : (d.tokenUsage != null ? d.tokenUsage : '');
+        const st = d.status || 'unknown';
+        const summary = d.output || d.summary || d.result || '';
+        const failed = st === 'failed';
+        const tokensHtml = tokens !== '' ? '<span class="badge badge-token me-1">token: ' + escapeHtml(tokens) + '</span>' : '';
+        const modelHtml = model ? '<span class="badge badge-model me-1">模型: ' + escapeHtml(model) + '</span>' : '';
+        return '<div class="tl-item ' + (failed ? 'failed' : '') + '">'
+          + '<div class="tl-meta">'
+          + '<span class="role">' + escapeHtml(role) + '</span>'
+          + modelHtml + tokensHtml
+          + '<span class="status-badge ' + (STATUS_CLASS[st] || 'status-unknown') + '">' + (STATUS_TEXT[st] || st) + '</span>'
+          + '<span class="ms-2">' + escapeHtml(fmtTime(d.createdAt || d.createTime)) + '</span>'
+          + '</div>'
+          + (d.task ? '<div style="font-size:13px;color:#555;">任务：' + escapeHtml(d.task) + '</div>' : '')
+          + (summary ? '<div class="tl-output">' + renderMarkdown(summary) + '</div>' : '')
+          + '</div>';
+      }
+
+      // ---- 发起派生 ----
+      function bindDerive(id) {
+        $('#deriveForm').on('submit', function (e) {
+          e.preventDefault();
+          const role = $('#roleSelect').val();
+          const task = $('#taskInput').val().trim();
+          if (!task) { showDeriveTip('请输入任务描述', 'danger'); return; }
+          const $btn = $('#deriveBtn').prop('disabled', true).text('派生中...');
+          showDeriveTip('正在派生，请稍候（首个产出可能耗时较长）...', 'info');
+          // POST /api/v1/runtime/derive {role, task, caseId}
+          bizPost('/api/v1/runtime/derive', { role: role, task: task, caseId: id })
+            .done(function (resp) {
+              if (resp.code === 0) {
+                showDeriveTip('派生完成，已刷新时间线', 'success');
+                $('#taskInput').val('');
+                loadTimeline(id);
+              } else {
+                showDeriveTip(resp.msg || '派生失败', 'danger');
+              }
+            })
+            .fail(function (xhr) {
+              showDeriveTip((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'), 'danger');
+            })
+            .always(function () { $btn.prop('disabled', false).text('发起派生'); });
+        });
+      }
+      function showDeriveTip(msg, type) {
+        const cls = type === 'success' ? 'alert-success' : type === 'danger' ? 'alert-danger' : type === 'info' ? 'alert-info' : 'alert-warning';
+        $('#deriveTip').removeClass('alert-success alert-danger alert-info alert-warning d-none').addClass(cls).text(msg);
+        if (type !== 'info') setTimeout(function () { $('#deriveTip').addClass('d-none'); }, 5000);
+      }
+
+      // ---- 工具：POST 业务 API（自动带 token，401 由 api.js 统一处理）----
+      function bizPost(path, data) {
+        return API.request({
+          url: CFG.API_BASE_URL + path,
+          method: 'POST',
+          data: JSON.stringify(data)
+        });
+      }
+
+      // ---- 通用工具 ----
+      function goList() {
+        if (window.self !== window.top && window.parent && window.parent.eaiselpNav) {
+          window.parent.eaiselpNav('case-board', 'Case 看板', 'pages/case-list.html');
+        } else {
+          location.href = 'case-list.html';
+        }
+      }
+      function renderMarkdown(md) {
+        try {
+          if (window.marked && typeof window.marked.parse === 'function') return window.marked.parse(String(md));
+        } catch (e) { /* 降级纯文本 */ }
+        return '<pre style="white-space:pre-wrap;background:transparent;border:none;padding:0;">' + escapeHtml(md) + '</pre>';
+      }
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function fmtTime(t) {
+        if (!t) return '-';
+        const d = typeof t === 'number' ? new Date(t) : new Date(t);
+        if (isNaN(d.getTime())) return String(t);
+        const p = function (n) { return n < 10 ? '0' + n : n; };
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+          + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+      }
+    });
+  </script>
+</body>
+</html>
