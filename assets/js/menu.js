@@ -14,6 +14,7 @@
       { key: 'monitor', title: '系统监控' }
     ],
     tenant_admin: [
+      { key: 'case-manage', title: 'Case 管理', page: 'pages/case-list.html' },
       { key: 'user', title: '用户管理' },
       { key: 'role', title: '角色管理' },
       { key: 'program', title: '项目群看板' },
