@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>用户管理 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    /* 本页局部样式（颜色沿用平台主色 #1677ff） */
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .status-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+    .status-active { background:#f6ffed; color:#52c41a; }
+    .status-disabled { background:#fff1f0; color:#ff4d4f; }
+    .status-unknown { background:#f5f5f5; color:#999; }
+    .role-tag { display:inline-block; padding:1px 7px; border-radius:4px; font-size:12px; background:#e6f4ff; color:#1677ff; margin-right:4px; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .modal-backdrop.show { opacity:.5; }
+    .form-hint { font-size:12px; color:#999; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">用户管理</h5>
+      <div class="spacer"></div>
+      <input type="text" id="kwInput" class="form-control form-control-sm" style="width:180px;" placeholder="搜索用户名/显示名">
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">状态：</span>
+        <select id="statusFilter" class="form-select form-select-sm" style="width:auto;">
+          <option value="">全部</option>
+          <option value="active">启用</option>
+          <option value="disabled">禁用</option>
+        </select>
+      </label>
+      <button id="newUserBtn" class="btn btn-primary btn-sm">+ 新建用户</button>
+    </div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:140px;">用户名</th>
+            <th>显示名</th>
+            <th style="width:220px;">角色</th>
+            <th style="width:90px;">状态</th>
+            <th style="width:160px;">创建时间</th>
+            <th style="width:200px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="userTbody">
+          <tr class="empty-row"><td colspan="6">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pager">
+      <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+      <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+      <span id="pageNumbers" style="font-size:13px;"></span>
+      <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+      <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="10">10/页</option>
+        <option value="20">20/页</option>
+        <option value="50">50/页</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 新建/编辑 用户 Modal -->
+  <div class="modal fade" id="userModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h6 class="modal-title" id="modalTitle">新建用户</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="userForm">
+            <input type="hidden" id="fId">
+            <div class="mb-3">
+              <label class="form-label">用户名 <span class="text-danger">*</span></label>
+              <input type="text" id="fUsername" class="form-control" maxlength="64" required>
+            </div>
+            <div class="mb-3" id="passwordWrap">
+              <label class="form-label">密码 <span class="text-danger">*</span></label>
+              <input type="password" id="fPassword" class="form-control" maxlength="128">
+              <div class="form-hint" id="passwordHint">不少于 6 位</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">显示名 <span class="text-danger">*</span></label>
+              <input type="text" id="fDisplayName" class="form-control" maxlength="128" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">角色 <span class="text-danger">*</span></label>
+              <select id="fRoles" class="form-select" multiple size="6"></select>
+              <div class="form-hint">按住 Ctrl/Cmd 多选（tenant_admin/project_manager/engineer/executive/platform_admin）</div>
+            </div>
+            <div class="form-check mb-3" id="activeWrap">
+              <input class="form-check-input" type="checkbox" id="fActive" checked>
+              <label class="form-check-label" for="fActive">启用账户</label>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="button" id="saveBtn" class="btn btn-primary">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 分配角色 Modal -->
+  <div class="modal fade" id="roleModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h6 class="modal-title">分配角色 - <span id="roleModalUser"></span></h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div id="roleCheckboxList"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="button" id="saveRoleBtn" class="btn btn-primary">保存角色</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      // 平台可选角色清单（与 menu.js PLATFORM_ROLES 一致，单一来源由后端权限定义）
+      const ROLE_OPTIONS = [
+        { code: 'platform_admin', name: '平台管理员' },
+        { code: 'tenant_admin', name: '租户管理员' },
+        { code: 'project_manager', name: '项目经理' },
+        { code: 'engineer', name: '工程师' },
+        { code: 'executive', name: '高管' }
+      ];
+
+      const state = { page: 1, size: 10, status: '', kw: '', total: 0 };
+      let userModal, roleModal;
+      let editingId = null;          // 编辑模式：当前用户 id；新建为 null
+      let roleAssignTarget = null;   // 分配角色目标用户
+
+      // ---- 加载列表 ----
+      function loadList() {
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.status) params.set('status', state.status);
+        if (state.kw) params.set('kw', state.kw);
+        $('#userTbody').html('<tr class="empty-row"><td colspan="6">加载中...</td></tr>');
+        API.bizGet('/api/v1/users?' + params.toString()).done(function (resp) {
+          if (resp.code !== 0) { renderError(resp.msg || '加载失败'); return; }
+          const data = resp.data || {};
+          const list = data.list || data.items || data.records || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          renderError((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'));
+        });
+      }
+
+      function renderError(msg) {
+        $('#userTbody').html('<tr class="empty-row"><td colspan="6">' + escapeHtml(msg) + '</td></tr>');
+        $('#pageInfo').text('');
+        $('#pageNumbers').html('');
+      }
+
+      function renderTable(list) {
+        if (!list.length) {
+          $('#userTbody').html('<tr class="empty-row"><td colspan="6">暂无用户，点击右上角"新建用户"创建</td></tr>');
+          return;
+        }
+        const rows = list.map(function (u) {
+          const status = u.status || (u.active === false ? 'disabled' : 'active');
+          const cls = status === 'active' ? 'status-active' : (status === 'disabled' ? 'status-disabled' : 'status-unknown');
+          const txt = status === 'active' ? '启用' : (status === 'disabled' ? '禁用' : status);
+          const roles = (u.roles || []).map(function (r) {
+            return '<span class="role-tag">' + escapeHtml(r) + '</span>';
+          }).join('') || '<span class="text-muted">-</span>';
+          const id = u.id != null ? u.id : (u.userId || u.username);
+          return '<tr>'
+            + '<td><strong>' + escapeHtml(u.username || '') + '</strong></td>'
+            + '<td>' + escapeHtml(u.displayName || u.name || '') + '</td>'
+            + '<td>' + roles + '</td>'
+            + '<td><span class="status-badge ' + cls + '">' + txt + '</span></td>'
+            + '<td>' + escapeHtml(fmtTime(u.createdAt || u.createTime)) + '</td>'
+            + '<td>'
+            + '<button class="btn btn-sm btn-outline-primary edit-btn" data-id="' + escapeHtml(id) + '">编辑</button> '
+            + '<button class="btn btn-sm btn-outline-secondary role-btn" data-id="' + escapeHtml(id) + '">分配角色</button> '
+            + '<button class="btn btn-sm toggle-status-btn ' + (status === 'active' ? 'btn-outline-danger' : 'btn-outline-success') + '" data-id="' + escapeHtml(id) + '" data-status="' + status + '">'
+            + (status === 'active' ? '禁用' : '启用') + '</button>'
+            + '</td>'
+            + '</tr>';
+        });
+        $('#userTbody').html(rows.join(''));
+        // 缓存列表行数据供编辑/分配角色使用（避免再次请求详情）
+        listCache = {};
+        list.forEach(function (u) {
+          const id = u.id != null ? u.id : (u.userId || u.username);
+          listCache[String(id)] = u;
+        });
+      }
+
+      let listCache = {};
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        const cur = state.page;
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + cur + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', cur <= 1);
+        $('#nextBtn').prop('disabled', cur >= totalPages);
+        const nums = buildPageNums(cur, totalPages);
+        const html = nums.map(function (n) {
+          if (n === '...') return '<span class="mx-1 text-muted">…</span>';
+          const active = n === cur ? 'btn-primary' : 'btn-outline-secondary';
+          return '<button class="btn btn-sm ' + active + ' page-num-btn" data-page="' + n + '">' + n + '</button>';
+        }).join(' ');
+        $('#pageNumbers').html(html);
+      }
+
+      function buildPageNums(cur, total) {
+        const arr = [];
+        const push = function (n) { if (arr.indexOf(n) === -1) arr.push(n); };
+        push(1);
+        if (cur - 1 > 2) arr.push('...');
+        for (let n = cur - 1; n <= cur + 1; n++) { if (n > 1 && n < total) push(n); }
+        if (cur + 1 < total - 1) arr.push('...');
+        if (total > 1) push(total);
+        return arr;
+      }
+
+      // ---- 工具 ----
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function fmtTime(t) {
+        if (!t) return '-';
+        const d = typeof t === 'number' ? new Date(t) : new Date(t);
+        if (isNaN(d.getTime())) return String(t);
+        const p = function (n) { return n < 10 ? '0' + n : n; };
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+          + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+      }
+
+      // ---- 新建/编辑 Modal ----
+      function fillRoleSelect($sel, selected) {
+        $sel.empty();
+        ROLE_OPTIONS.forEach(function (r) {
+          const opt = $('<option></option>').val(r.code).text(r.name + ' (' + r.code + ')');
+          if (selected && selected.indexOf(r.code) !== -1) opt.prop('selected', true);
+          $sel.append(opt);
+        });
+      }
+
+      function openCreate() {
+        editingId = null;
+        $('#modalTitle').text('新建用户');
+        $('#fId').val('');
+        $('#fUsername').val('').prop('disabled', false);
+        $('#fPassword').val('');
+        $('#passwordWrap').show();
+        $('#passwordHint').text('不少于 6 位');
+        $('#fDisplayName').val('');
+        fillRoleSelect($('#fRoles'), []);
+        $('#fActive').prop('checked', true);
+        $('#activeWrap').show();
+        userModal.show();
+      }
+
+      function openEdit(id) {
+        const u = listCache[String(id)];
+        if (!u) { alert('用户数据未找到，请刷新列表'); return; }
+        editingId = id;
+        $('#modalTitle').text('编辑用户');
+        $('#fId').val(id);
+        $('#fUsername').val(u.username || '').prop('disabled', true);  // 用户名不可改
+        $('#fPassword').val('');
+        $('#passwordWrap').show();
+        $('#passwordHint').text('留空则不修改密码');
+        $('#fDisplayName').val(u.displayName || u.name || '');
+        fillRoleSelect($('#fRoles'), u.roles || []);
+        $('#fActive').prop('checked', (u.status || 'active') !== 'disabled' && u.active !== false);
+        $('#activeWrap').show();
+        userModal.show();
+      }
+
+      $('#saveBtn').on('click', function () {
+        const username = $.trim($('#fUsername').val());
+        const displayName = $.trim($('#fDisplayName').val());
+        const password = $('#fPassword').val();
+        const roles = $('#fRoles').val() || [];
+        const active = $('#fActive').prop('checked');
+        if (!username) { alert('请输入用户名'); return; }
+        if (!displayName) { alert('请输入显示名'); return; }
+        if (!editingId && !password) { alert('请输入密码'); return; }
+        if (!roles.length) { alert('请至少分配一个角色'); return; }
+
+        const payload = { username: username, displayName: displayName, roles: roles, status: active ? 'active' : 'disabled' };
+        if (password) payload.password = password;
+
+        const $btn = $(this).prop('disabled', true).text('保存中...');
+        if (editingId) {
+          API.bizPut('/api/v1/users/' + encodeURIComponent(editingId), payload).done(function (resp) {
+            if (resp.code === 0) { userModal.hide(); loadList(); }
+            else { alert(resp.msg || '保存失败'); }
+          }).fail(function (xhr) {
+            alert((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'));
+          }).always(function () { $btn.prop('disabled', false).text('保存'); });
+        } else {
+          API.bizPost('/api/v1/users', payload).done(function (resp) {
+            if (resp.code === 0) { userModal.hide(); state.page = 1; loadList(); }
+            else { alert(resp.msg || '创建失败'); }
+          }).fail(function (xhr) {
+            alert((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'));
+          }).always(function () { $btn.prop('disabled', false).text('保存'); });
+        }
+      });
+
+      // ---- 启用/禁用 ----
+      function toggleStatus(id, curStatus) {
+        const next = curStatus === 'active' ? 'disabled' : 'active';
+        const verb = next === 'disabled' ? '禁用' : '启用';
+        if (!confirm('确认' + verb + '该用户？')) return;
+        API.bizPut('/api/v1/users/' + encodeURIComponent(id), { status: next }).done(function (resp) {
+          if (resp.code === 0) loadList();
+          else alert(resp.msg || verb + '失败');
+        }).fail(function (xhr) {
+          alert((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'));
+        });
+      }
+
+      // ---- 分配角色 Modal ----
+      function openRoleAssign(id) {
+        const u = listCache[String(id)];
+        if (!u) { alert('用户数据未找到，请刷新列表'); return; }
+        roleAssignTarget = id;
+        $('#roleModalUser').text(u.username || '');
+        const $box = $('#roleCheckboxList').empty();
+        ROLE_OPTIONS.forEach(function (r) {
+          const checked = (u.roles || []).indexOf(r.code) !== -1 ? 'checked' : '';
+          $box.append(
+            '<div class="form-check mb-2">'
+            + '<input class="form-check-input role-cb" type="checkbox" value="' + r.code + '" id="rcb_' + r.code + '" ' + checked + '>'
+            + '<label class="form-check-label" for="rcb_' + r.code + '">' + r.name + ' <span class="text-muted">(' + r.code + ')</span></label>'
+            + '</div>'
+          );
+        });
+        roleModal.show();
+      }
+
+      $('#saveRoleBtn').on('click', function () {
+        if (!roleAssignTarget) return;
+        const roles = $('.role-cb:checked').map(function () { return $(this).val(); }).get();
+        if (!roles.length) { alert('请至少保留一个角色'); return; }
+        const $btn = $(this).prop('disabled', true).text('保存中...');
+        API.bizPut('/api/v1/users/' + encodeURIComponent(roleAssignTarget), { roles: roles }).done(function (resp) {
+          if (resp.code === 0) { roleModal.hide(); loadList(); }
+          else alert(resp.msg || '保存失败');
+        }).fail(function (xhr) {
+          alert((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'));
+        }).always(function () { $btn.prop('disabled', false).text('保存角色'); });
+      });
+
+      // ---- 事件绑定 ----
+      $('#statusFilter').on('change', function () { state.status = $(this).val(); state.page = 1; loadList(); });
+      $('#kwInput').on('keypress', function (e) { if (e.which === 13) { state.kw = $.trim($(this).val()); state.page = 1; loadList(); } });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+      $('#pageNumbers').on('click', '.page-num-btn', function () { state.page = parseInt($(this).data('page'), 10); loadList(); });
+      $('#newUserBtn').on('click', openCreate);
+      $('#userTbody').on('click', '.edit-btn', function () { openEdit($(this).data('id')); });
+      $('#userTbody').on('click', '.role-btn', function () { openRoleAssign($(this).data('id')); });
+      $('#userTbody').on('click', '.toggle-status-btn', function () {
+        toggleStatus($(this).data('id'), $(this).data('status'));
+      });
+
+      // ---- 初始化 ----
+      try {
+        userModal = new bootstrap.Modal(document.getElementById('userModal'));
+        roleModal = new bootstrap.Modal(document.getElementById('roleModal'));
+      } catch (e) {
+        alert('界面初始化失败：' + e.message);
+      }
+      loadList();
+    });
+  </script>
+</body>
+</html>

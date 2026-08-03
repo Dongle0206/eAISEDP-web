@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>全局搜索 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    /* 本页局部样式（颜色沿用平台主色 #1677ff） */
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; max-width:1000px; margin:0 auto; }
+    .search-bar { display:flex; gap:8px; margin-bottom:16px; }
+    .result-item { background:#fff; border-radius:6px; padding:14px 18px; margin-bottom:12px; }
+    .result-item .ri-title { font-weight:600; color:#333; font-size:15px; }
+    .result-item .ri-meta { font-size:12px; color:#999; margin-top:4px; }
+    .result-item .ri-snippet { color:#666; font-size:13px; margin-top:6px; line-height:1.6;
+      max-height:80px; overflow:hidden; text-overflow:ellipsis;
+      display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
+    .type-tag { display:inline-block; padding:1px 7px; border-radius:4px; font-size:12px; background:#e6f4ff; color:#1677ff; margin-right:6px; }
+    .role-tag { display:inline-block; padding:1px 7px; border-radius:4px; font-size:12px; background:#f9f0ff; color:#722ed1; margin-right:6px; }
+    .case-link { color:#1677ff; cursor:pointer; }
+    .case-link:hover { text-decoration:underline; }
+    .highlight { background:#fff7d6; }
+    .pager { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-top:16px; }
+    .empty-tip { text-align:center; color:#999; padding:50px 0; background:#fff; border-radius:6px; }
+    .hint-tip { text-align:center; color:#bbb; padding:60px 0; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <h5 class="mb-3">全局搜索</h5>
+    <!-- 搜索框 -->
+    <div class="search-bar">
+      <input type="text" id="qInput" class="form-control" placeholder="输入关键词搜索 Case / 产物 / 任务..." autofocus>
+      <select id="typeFilter" class="form-select" style="width:auto;">
+        <option value="">全部类型</option>
+        <option value="case">Case</option>
+        <option value="artifact">产物</option>
+        <option value="task">任务</option>
+      </select>
+      <button id="searchBtn" class="btn btn-primary">搜索</button>
+    </div>
+
+    <!-- 结果区 -->
+    <div id="resultMeta" class="text-muted mb-2" style="font-size:13px;"></div>
+    <div id="resultBox">
+      <div class="hint-tip">输入关键词后点击「搜索」或回车</div>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pager" id="pagerWrap" style="display:none;">
+      <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+      <span id="pageNumbers" style="font-size:13px;"></span>
+      <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+    </div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const state = { q: '', type: '', page: 1, size: 10, total: 0, searched: false };
+
+      function doSearch() {
+        const q = $.trim($('#qInput').val());
+        if (!q) { alert('请输入搜索关键词'); return; }
+        state.q = q;
+        state.type = $('#typeFilter').val();
+        state.page = 1;
+        state.searched = true;
+        loadResults();
+      }
+
+      function loadResults() {
+        const params = new URLSearchParams();
+        params.set('q', state.q);
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.type) params.set('type', state.type);
+        $('#resultBox').html('<div class="empty-tip">搜索中...</div>');
+        $('#resultMeta').text('');
+        $('#pagerWrap').hide();
+        API.bizGet('/api/v1/search?' + params.toString()).done(function (resp) {
+          if (resp.code !== 0) { renderError(resp.msg || '搜索失败'); return; }
+          const data = resp.data || {};
+          const list = data.list || data.items || data.records || data.hits || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderMeta();
+          renderResults(list, state.q);
+          renderPager();
+        }).fail(function (xhr) {
+          renderError((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'));
+        });
+      }
+
+      function renderError(msg) {
+        $('#resultBox').html('<div class="empty-tip">' + escapeHtml(msg) + '</div>');
+        $('#resultMeta').text('');
+        $('#pagerWrap').hide();
+      }
+
+      function renderMeta() {
+        if (state.total > 0) {
+          $('#resultMeta').text('关键词「' + state.q + '」共找到 ' + state.total + ' 条结果');
+        } else {
+          $('#resultMeta').text('');
+        }
+      }
+
+      function renderResults(list, q) {
+        if (!list.length) {
+          $('#resultBox').html('<div class="empty-tip">未找到与「' + escapeHtml(q) + '」相关的内容<br><span style="font-size:12px;">建议更换关键词或缩短搜索内容</span></div>');
+          return;
+        }
+        const html = list.map(function (it) {
+          const title = it.title || it.name || '(无标题)';
+          const type = it.type || it.kind || it.category || '';
+          const role = it.role || it.roleCode || '';
+          const caseId = it.caseId || it.case_id || '';
+          const caseCode = it.caseCode || caseId;
+          const content = it.content || it.snippet || it.summary || it.description || '';
+          const snippet = truncate(stripHtml(content), 200);
+          return '<div class="result-item">'
+            + '<div class="ri-title">' + highlight(escapeHtml(title), q) + '</div>'
+            + '<div class="ri-meta">'
+            + (type ? '<span class="type-tag">' + escapeHtml(type) + '</span>' : '')
+            + (role ? '<span class="role-tag">' + escapeHtml(role) + '</span>' : '')
+            + (caseCode ? 'Case: <span class="case-link" data-case="' + escapeHtml(caseId) + '">' + escapeHtml(caseCode) + '</span>' : '')
+            + '</div>'
+            + '<div class="ri-snippet">' + highlight(escapeHtml(snippet), q) + '</div>'
+            + '</div>';
+        }).join('');
+        $('#resultBox').html(html);
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        $('#pagerWrap').toggle(state.total > 0);
+        $('#prevBtn').prop('disabled', state.page <= 1);
+        $('#nextBtn').prop('disabled', state.page >= totalPages);
+        const nums = buildPageNums(state.page, totalPages);
+        const html = nums.map(function (n) {
+          if (n === '...') return '<span class="mx-1 text-muted">…</span>';
+          const active = n === state.page ? 'btn-primary' : 'btn-outline-secondary';
+          return '<button class="btn btn-sm ' + active + ' page-num-btn" data-page="' + n + '">' + n + '</button>';
+        }).join(' ');
+        $('#pageNumbers').html(html);
+      }
+
+      function buildPageNums(cur, total) {
+        const arr = [];
+        const push = function (n) { if (arr.indexOf(n) === -1) arr.push(n); };
+        push(1);
+        if (cur - 1 > 2) arr.push('...');
+        for (let n = cur - 1; n <= cur + 1; n++) { if (n > 1 && n < total) push(n); }
+        if (cur + 1 < total - 1) arr.push('...');
+        if (total > 1) push(total);
+        return arr;
+      }
+
+      // 工具
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      // 关键词高亮（转义后的文本里，对转义后的关键词做包裹）
+      function highlight(escapedText, q) {
+        if (!q) return escapedText;
+        const escapedQ = escapeHtml(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        try {
+          const re = new RegExp('(' + escapedQ + ')', 'gi');
+          return escapedText.replace(re, '<span class="highlight">$1</span>');
+        } catch (e) { return escapedText; }
+      }
+      function stripHtml(s) {
+        // 去掉 HTML 标签，避免摘要里出现裸标签干扰显示
+        return String(s).replace(/<[^>]*>/g, '');
+      }
+      function truncate(s, len) {
+        s = String(s).replace(/\s+/g, ' ').trim();
+        return s.length > len ? s.slice(0, len) + '...' : s;
+      }
+
+      // 事件
+      $('#searchBtn').on('click', doSearch);
+      $('#qInput').on('keypress', function (e) { if (e.which === 13) doSearch(); });
+      $('#typeFilter').on('change', function () { if (state.searched) { state.type = $(this).val(); state.page = 1; loadResults(); } });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadResults(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadResults(); }
+      });
+      $('#pageNumbers').on('click', '.page-num-btn', function () { state.page = parseInt($(this).data('page'), 10); loadResults(); });
+      // 点击 Case 链接跳详情
+      $('#resultBox').on('click', '.case-link', function () {
+        const caseId = $(this).data('case');
+        if (!caseId) return;
+        if (window.self !== window.top && window.parent && window.parent.eaiselpNav) {
+          window.parent.eaiselpNav('case-detail', 'Case 详情', 'pages/case-detail.html?caseId=' + encodeURIComponent(caseId));
+        } else {
+          location.href = 'case-detail.html?caseId=' + encodeURIComponent(caseId);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

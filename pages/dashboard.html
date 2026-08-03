@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>数据看板 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    /* 本页局部样式（颜色沿用平台主色 #1677ff，状态色复用全局调色板） */
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .section { background:#fff; border-radius:6px; padding:16px 20px; margin-bottom:16px; }
+    .section h6 { color:#1677ff; border-left:3px solid #1677ff; padding-left:8px; margin-bottom:14px; }
+    .stat-card { background:#fff; border-radius:6px; padding:18px 20px; display:flex; align-items:center; gap:14px; }
+    .stat-card .stat-icon { width:48px; height:48px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:22px; color:#fff; flex-shrink:0; }
+    .stat-card .stat-num { font-size:26px; font-weight:700; line-height:1.1; color:#333; }
+    .stat-card .stat-label { color:#999; font-size:13px; margin-top:2px; }
+    .bar-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+    .bar-row .bar-label { width:110px; text-align:right; color:#666; font-size:13px; flex-shrink:0; }
+    .bar-row .progress { flex:1; height:18px; }
+    .bar-row .bar-count { width:70px; color:#666; font-size:13px; }
+    .legend-dot { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; }
+    .empty-tip { text-align:center; color:#999; padding:30px 0; }
+    .loading-tip { color:#999; font-size:13px; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <div class="toolbar d-flex align-items-center mb-3">
+      <h5 class="mb-0">数据看板</h5>
+      <div class="ms-auto">
+        <span class="text-muted" style="font-size:13px;" id="refreshTime"></span>
+        <button id="refreshBtn" class="btn btn-outline-secondary btn-sm ms-2">刷新</button>
+      </div>
+    </div>
+
+    <!-- 上半：4 个数字卡片 -->
+    <div class="row g-3 mb-2" id="cardRow">
+      <div class="col-12 col-md-6 col-xl-3">
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#1677ff;">C</div>
+          <div>
+            <div class="stat-num" id="cardCases">-</div>
+            <div class="stat-label">Case 总数</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-xl-3">
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#722ed1;">D</div>
+          <div>
+            <div class="stat-num" id="cardDerives">-</div>
+            <div class="stat-label">派生总数</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-xl-3">
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#08979c;">T</div>
+          <div>
+            <div class="stat-num" id="cardTokens">-</div>
+            <div class="stat-label">Token 消耗</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-xl-3">
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#faad14;">P</div>
+          <div>
+            <div class="stat-num" id="cardCheckpoints">-</div>
+            <div class="stat-label">检查点待审</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 中间：Case 状态分布 -->
+    <div class="section">
+      <h6>Case 状态分布</h6>
+      <div id="caseStatsBox">
+        <div class="empty-tip loading-tip">加载中...</div>
+      </div>
+    </div>
+
+    <!-- 下半：派生统计（按角色） -->
+    <div class="section">
+      <h6>派生统计（按角色）</h6>
+      <div class="table-responsive">
+        <table class="table table-bordered table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>角色</th>
+              <th style="width:140px;">派生次数</th>
+              <th style="width:180px;">Input Token</th>
+              <th style="width:180px;">Output Token</th>
+            </tr>
+          </thead>
+          <tbody id="deriveTbody">
+            <tr class="empty-row"><td colspan="4" class="text-center text-muted" style="padding:30px 0;">加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      // 状态→条形色（与 case-list 状态色系一致）
+      const STATUS_COLORS = {
+        in_progress: '#1677ff',
+        completed: '#52c41a',
+        pending: '#faad14',
+        failed: '#ff4d4f',
+        running: '#1677ff',
+        unknown: '#bfbfbf'
+      };
+      const STATUS_TEXT = {
+        in_progress: '进行中', completed: '已完成', pending: '待处理',
+        failed: '失败', running: '运行中', unknown: '未知'
+      };
+
+      // 数字千分位
+      function fmtNum(n) {
+        if (n == null || isNaN(n)) return '-';
+        return Number(n).toLocaleString('en-US');
+      }
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+
+      // 三接口并行加载
+      function loadAll() {
+        $('#refreshTime').text('刷新中...');
+        const reqs = [
+          API.bizGet('/api/v1/dashboard/overview'),
+          API.bizGet('/api/v1/dashboard/case-stats'),
+          API.bizGet('/api/v1/dashboard/derivation-stats')
+        );
+        $.when.apply($, reqs).done(function (ovArgs, csArgs, dvArgs) {
+          const overview = unwrap(ovArgs);
+          const caseStats = unwrap(csArgs);
+          const deriveStats = unwrap(dvArgs);
+          if (overview) renderOverview(overview);
+          if (caseStats) renderCaseStats(caseStats);
+          if (deriveStats) renderDerivation(deriveStats);
+          $('#refreshTime').text('更新于 ' + nowStr());
+        }).fail(function (xhr) {
+          $('#refreshTime').text('加载失败');
+          $('#caseStatsBox').html('<div class="empty-tip">' + escapeHtml((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）')) + '</div>');
+        });
+      }
+
+      // $.when 回调参数可能是 [resp, status, jqxhr]（单接口三参形态）
+      function unwrap(args) {
+        const resp = args && args[0];
+        if (!resp) return null;
+        if (resp.code !== 0) { console.warn('dashboard resp error', resp); return null; }
+        return resp.data || {};
+      }
+
+      function renderOverview(d) {
+        // 字段名做容错（后端字段可能为 camelCase 或不同命名，取首个非空）
+        $('#cardCases').text(fmtNum(firstNum(d, ['caseTotal', 'caseCount', 'cases'])));
+        $('#cardDerives').text(fmtNum(firstNum(d, ['derivationTotal', 'deriveTotal', 'derivations', 'derives'])));
+        $('#cardTokens').text(fmtNum(firstNum(d, ['tokenTotal', 'tokenConsumed', 'tokens'])));
+        $('#cardCheckpoints').text(fmtNum(firstNum(d, ['pendingCheckpoints', 'checkpointPending', 'checkpoints'])));
+      }
+
+      function firstNum(obj, keys) {
+        for (let i = 0; i < keys.length; i++) {
+          if (obj[keys[i]] != null) return obj[keys[i]];
+        }
+        // 兜底：直接传数字
+        if (typeof obj === 'number') return obj;
+        return 0;
+      }
+
+      function renderCaseStats(data) {
+        // 预期 { items: [{status,count}], list: [...] } 或 { stats: [...] } 或对象 map {in_progress:5}
+        let items = data.items || data.list || data.stats || data.records || [];
+        if (!items.length && !Array.isArray(data)) {
+          // 尝试 map 形态 {in_progress:5, completed:3}
+          items = Object.keys(data).filter(function (k) { return typeof data[k] === 'number'; })
+            .map(function (k) { return { status: k, count: data[k] }; });
+        }
+        if (!items.length) {
+          $('#caseStatsBox').html('<div class="empty-tip">暂无 Case 状态数据</div>');
+          return;
+        }
+        const total = items.reduce(function (s, it) {
+          return s + (Number(it.count) || Number(it.value) || Number(it.total) || 0);
+        }, 0);
+        const base = total > 0 ? total : 1;  // 防除零
+        const html = items.map(function (it) {
+          const status = it.status || it.name || it.key || 'unknown';
+          const count = Number(it.count != null ? it.count : (it.value != null ? it.value : it.total)) || 0;
+          const pct = Math.round(count / base * 100);
+          const color = STATUS_COLORS[status] || STATUS_COLORS.unknown;
+          const label = STATUS_TEXT[status] || status;
+          return '<div class="bar-row">'
+            + '<div class="bar-label">' + escapeHtml(label) + '</div>'
+            + '<div class="progress"><div class="progress-bar" style="width:' + pct + '%;background:' + color + ';"></div></div>'
+            + '<div class="bar-count">' + fmtNum(count) + ' <span class="text-muted">(' + pct + '%)</span></div>'
+            + '</div>';
+        }).join('');
+        $('#caseStatsBox').html(html);
+      }
+
+      function renderDerivation(data) {
+        let items = data.items || data.list || data.stats || data.records || [];
+        if (!items.length && Array.isArray(data)) items = data;
+        const $tb = $('#deriveTbody');
+        if (!items.length) {
+          $tb.html('<tr><td colspan="4" class="text-center text-muted" style="padding:30px 0;">暂无派生统计数据</td></tr>');
+          return;
+        }
+        const rows = items.map(function (it) {
+          const role = it.role || it.roleCode || it.derivedByRole || '-';
+          const count = Number(it.count != null ? it.count : it.times) || 0;
+          const inputTok = Number(it.inputToken || it.inputTokens || it.input_token) || 0;
+          const outputTok = Number(it.outputToken || it.outputTokens || it.output_token) || 0;
+          return '<tr>'
+            + '<td>' + escapeHtml(role) + '</td>'
+            + '<td>' + fmtNum(count) + '</td>'
+            + '<td>' + fmtNum(inputTok) + '</td>'
+            + '<td>' + fmtNum(outputTok) + '</td>'
+            + '</tr>';
+        });
+        $tb.html(rows.join(''));
+      }
+
+      function nowStr() {
+        const d = new Date();
+        const p = function (n) { return n < 10 ? '0' + n : n; };
+        return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+      }
+
+      $('#refreshBtn').on('click', loadAll);
+      loadAll();
+    });
+  </script>
+</body>
+</html>

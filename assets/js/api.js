@@ -48,12 +48,22 @@
     return request({ url: CFG.AUTH_BASE_URL + path, method: 'GET' });
   }
 
+  // 业务 API（runtime 主机）便捷方法：自动拼 API_BASE_URL + token + JSON body
+  function bizRequest(method, path, data) {
+    const opt = { url: CFG.API_BASE_URL + path, method: method };
+    if (data !== undefined) opt.data = JSON.stringify(data);
+    return request(opt);
+  }
+
   window.EAISELP_API = {
     getToken, setToken, clearToken, request,
     login: function (u, p) { return authPost('/api/v1/auth/login', { username: u, password: p }, true); },
     current: function () { return authGet('/api/v1/auth/current'); },
     logout: function () { return authPost('/api/v1/auth/logout', {}, false); },
     // 业务 API（Phase 2 扩展）
-    bizGet: function (path) { return request({ url: CFG.API_BASE_URL + path, method: 'GET' }); }
+    bizGet: function (path) { return bizRequest('GET', path); },
+    bizPost: function (path, data) { return bizRequest('POST', path, data); },
+    bizPut: function (path, data) { return bizRequest('PUT', path, data); },
+    bizDelete: function (path) { return bizRequest('DELETE', path); }
   };
 })(window, jQuery);
