@@ -249,24 +249,78 @@
           const role = $('#roleSelect').val();
           const task = $('#taskInput').val().trim();
           if (!task) { showDeriveTip('请输入任务描述', 'danger'); return; }
-          const $btn = $('#deriveBtn').prop('disabled', true).text('派生中...');
-          showDeriveTip('正在派生，请稍候（首个产出可能耗时较长）...', 'info');
-          // POST /api/v1/runtime/derive {role, task, caseId}
+          const $btn = $('#deriveBtn').prop('disabled', true).text('提交中...');
+          showDeriveTip('正在提交派生请求...', 'info');
+          // POST /api/v1/runtime/derive（异步：返回 taskId + status=pending）
           bizPost('/api/v1/runtime/derive', { role: role, task: task, caseId: id })
             .done(function (resp) {
-              if (resp.code === 0) {
-                showDeriveTip('派生完成，已刷新时间线', 'success');
-                $('#taskInput').val('');
-                loadTimeline(id);
+              if (resp.code === 0 && resp.data) {
+                var taskId = resp.data.taskId || resp.data.id;
+                if (taskId) {
+                  // 异步模式：轮询 GET /api/v1/runtime/derive/{taskId}
+                  showDeriveTip('派生已提交（任务ID: ' + taskId + '），正在执行...', 'info');
+                  $btn.text('派生中...');
+                  pollDerivation(taskId, id, $btn);
+                } else {
+                  // 兼容旧同步模式（直接返回结果）
+                  showDeriveTip('派生完成，已刷新时间线', 'success');
+                  $('#taskInput').val('');
+                  loadTimeline(id);
+                  $btn.prop('disabled', false).text('发起派生');
+                }
               } else {
                 showDeriveTip(resp.msg || '派生失败', 'danger');
+                $btn.prop('disabled', false).text('发起派生');
               }
             })
             .fail(function (xhr) {
               showDeriveTip((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'), 'danger');
-            })
-            .always(function () { $btn.prop('disabled', false).text('发起派生'); });
+              $btn.prop('disabled', false).text('发起派生');
+            });
         });
+
+        // 异步派生轮询
+        function pollDerivation(taskId, caseId, $btn) {
+          var maxAttempts = 60;  // 最多轮询 60 次（60 × 3 秒 = 3 分钟超时）
+          var attempt = 0;
+          function poll() {
+            attempt++;
+            if (attempt > maxAttempts) {
+              showDeriveTip('派生超时（3 分钟），请稍后在时间线查看结果', 'warning');
+              $btn.prop('disabled', false).text('发起派生');
+              return;
+            }
+            // GET /api/v1/runtime/derive/{taskId}
+            $.ajax({
+              url: CFG.API_BASE_URL + '/api/v1/runtime/derive/' + taskId,
+              method: 'GET',
+              headers: { 'Authorization': 'Bearer ' + API.getToken() },
+              dataType: 'json'
+            }).done(function (resp) {
+              if (resp.code === 0 && resp.data) {
+                var status = resp.data.status || (resp.data.state ? resp.data.state.status : '');
+                if (status === 'success' || status === 'done') {
+                  showDeriveTip('派生完成！已刷新时间线', 'success');
+                  $('#taskInput').val('');
+                  loadTimeline(caseId);
+                  $btn.prop('disabled', false).text('发起派生');
+                } else if (status === 'failed' || status === 'error') {
+                  showDeriveTip('派生失败：' + (resp.data.errorMsg || resp.data.error || '未知错误'), 'danger');
+                  $btn.prop('disabled', false).text('发起派生');
+                } else {
+                  // pending / running，继续轮询
+                  showDeriveTip('派生执行中...（' + status + '，第 ' + attempt + ' 次）', 'info');
+                  setTimeout(poll, 3000);
+                }
+              } else {
+                setTimeout(poll, 3000);
+              }
+            }).fail(function () {
+              setTimeout(poll, 3000);
+            });
+          }
+          setTimeout(poll, 2000);  // 2 秒后开始轮询
+        }
       }
       function showDeriveTip(msg, type) {
         const cls = type === 'success' ? 'alert-success' : type === 'danger' ? 'alert-danger' : type === 'info' ? 'alert-info' : 'alert-warning';
