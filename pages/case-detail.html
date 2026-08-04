@@ -14,11 +14,17 @@
     .info-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px 24px; font-size:14px; }
     .info-grid .label { color:#999; }
     .status-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
-    .status-in_progress { background:#e6f4ff; color:#1677ff; }
-    .status-completed { background:#f6ffed; color:#52c41a; }
-    .status-pending { background:#fff7e6; color:#faad14; }
+    /* Case 状态（与 case-list 对齐：drafting灰/deriving蓝/reviewing紫/testing黄/deploying青/done绿） */
+    .status-drafting { background:#f5f5f5; color:#999; }
+    .status-deriving { background:#e6f4ff; color:#1677ff; }
+    .status-reviewing { background:#f9f0ff; color:#722ed1; }
+    .status-testing { background:#fff7e6; color:#faad14; }
+    .status-deploying { background:#e6fffb; color:#08979c; }
+    .status-done { background:#f6ffed; color:#52c41a; }
+    /* 派生状态（时间线复用） */
     .status-failed { background:#fff1f0; color:#ff4d4f; }
     .status-running { background:#e6f4ff; color:#1677ff; }
+    .status-success { background:#f6ffed; color:#52c41a; }
     .status-unknown { background:#f5f5f5; color:#999; }
     .timeline { position:relative; padding-left:20px; }
     .timeline::before { content:''; position:absolute; left:5px; top:4px; bottom:4px; width:2px; background:#e8e8e8; }
@@ -128,8 +134,9 @@
       const CFG = window.EAISELP_CONFIG;
       if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
 
-      const STATUS_TEXT = { in_progress: '进行中', completed: '已完成', pending: '待处理', running: '运行中', failed: '失败', success: '成功' };
-      const STATUS_CLASS = { in_progress: 'status-in_progress', completed: 'status-completed', pending: 'status-pending', running: 'status-running', failed: 'status-failed', success: 'status-completed' };
+      // Case 状态（drafting/deriving/reviewing/testing/deploying/done）+ 派生状态（running/failed/success），与 case-list 状态枚举对齐
+      const STATUS_TEXT = { drafting:'草稿', deriving:'派生中', reviewing:'评审中', testing:'测试中', deploying:'部署中', done:'已完成', running:'运行中', failed:'失败', success:'成功' };
+      const STATUS_CLASS = { drafting:'status-drafting', deriving:'status-deriving', reviewing:'status-reviewing', testing:'status-testing', deploying:'status-deploying', done:'status-done', running:'status-running', failed:'status-failed', success:'status-success' };
 
       // 取 caseId 参数
       const params = new URLSearchParams(location.search);
@@ -195,10 +202,10 @@
           if (resp.code !== 0) { $('#caseTitleH').text('加载失败：' + (resp.msg || '')); return; }
           const c = resp.data || {};
           $('#caseTitleH').text(c.title || 'Case 详情');
-          $('#caseCode').text(c.caseCode || c.code || c.id || '-');
+          $('#caseCode').text(c.caseId || c.caseCode || c.code || c.id || '-');
           $('#caseCreatedAt').text(fmtTime(c.createdAt || c.createTime));
-          $('#caseCreator').text(c.creator || c.createdBy || '-');
-          $('#caseDesc').text(c.description || c.desc || '-');
+          $('#caseCreator').text(c.createBy || c.creator || c.createdBy || '-');
+          $('#caseDesc').text(c.requirement || c.description || c.desc || '-');
           const st = c.status || 'unknown';
           $('#caseStatus').html('<span class="status-badge ' + (STATUS_CLASS[st] || 'status-unknown') + '">' + (STATUS_TEXT[st] || st) + '</span>');
         }).fail(function (xhr) {
@@ -224,11 +231,14 @@
       function renderTlItem(d) {
         const role = d.role || d.roleCode || '-';
         const model = d.model || d.modelName || '';
-        const tokens = d.tokens != null ? d.tokens : (d.tokenUsage != null ? d.tokenUsage : '');
+        const inputTokens = d.inputTokens != null ? d.inputTokens : '';
+        const outputTokens = d.outputTokens != null ? d.outputTokens : '';
         const st = d.status || 'unknown';
         const summary = d.output || d.summary || d.result || '';
         const failed = st === 'failed';
-        const tokensHtml = tokens !== '' ? '<span class="badge badge-token me-1">token: ' + escapeHtml(tokens) + '</span>' : '';
+        const tokensHtml = (inputTokens !== '' || outputTokens !== '')
+          ? '<span class="badge badge-token me-1">in: ' + escapeHtml(inputTokens !== '' ? inputTokens : 0) + ' / out: ' + escapeHtml(outputTokens !== '' ? outputTokens : 0) + '</span>'
+          : '';
         const modelHtml = model ? '<span class="badge badge-model me-1">模型: ' + escapeHtml(model) + '</span>' : '';
         return '<div class="tl-item ' + (failed ? 'failed' : '') + '">'
           + '<div class="tl-meta">'
@@ -251,13 +261,13 @@
           if (!task) { showDeriveTip('请输入任务描述', 'danger'); return; }
           const $btn = $('#deriveBtn').prop('disabled', true).text('提交中...');
           showDeriveTip('正在提交派生请求...', 'info');
-          // POST /api/v1/runtime/derive（异步：返回 taskId + status=pending）
-          bizPost('/api/v1/runtime/derive', { role: role, task: task, caseId: id })
+          // POST /api/runtime/derive（异步：返回 taskId + status=pending）
+          bizPost('/api/runtime/derive', { role: role, task: task, caseId: id })
             .done(function (resp) {
               if (resp.code === 0 && resp.data) {
                 var taskId = resp.data.taskId || resp.data.id;
                 if (taskId) {
-                  // 异步模式：轮询 GET /api/v1/runtime/derive/{taskId}
+                  // 异步模式：轮询 GET /api/runtime/derive/{taskId}
                   showDeriveTip('派生已提交（任务ID: ' + taskId + '），正在执行...', 'info');
                   $btn.text('派生中...');
                   pollDerivation(taskId, id, $btn);
@@ -290,9 +300,9 @@
               $btn.prop('disabled', false).text('发起派生');
               return;
             }
-            // GET /api/v1/runtime/derive/{taskId}
+            // GET /api/runtime/derive/{taskId}
             $.ajax({
-              url: CFG.API_BASE_URL + '/api/v1/runtime/derive/' + taskId,
+              url: CFG.API_BASE_URL + '/api/runtime/derive/' + taskId,
               method: 'GET',
               headers: { 'Authorization': 'Bearer ' + API.getToken() },
               dataType: 'json'

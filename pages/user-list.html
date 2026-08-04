@@ -196,7 +196,7 @@
           const status = u.status || (u.active === false ? 'disabled' : 'active');
           const cls = status === 'active' ? 'status-active' : (status === 'disabled' ? 'status-disabled' : 'status-unknown');
           const txt = status === 'active' ? '启用' : (status === 'disabled' ? '禁用' : status);
-          const roles = (u.roles || []).map(function (r) {
+          const roles = (String(u.roles || '')).split(',').filter(function (r) { return r; }).map(function (r) {
             return '<span class="role-tag">' + escapeHtml(r) + '</span>';
           }).join('') || '<span class="text-muted">-</span>';
           const id = u.id != null ? u.id : (u.userId || u.username);
@@ -303,7 +303,7 @@
         $('#passwordWrap').show();
         $('#passwordHint').text('留空则不修改密码');
         $('#fDisplayName').val(u.displayName || u.name || '');
-        fillRoleSelect($('#fRoles'), u.roles || []);
+        fillRoleSelect($('#fRoles'), String(u.roles || '').split(',').filter(function (r) { return r; }));
         $('#fActive').prop('checked', (u.status || 'active') !== 'disabled' && u.active !== false);
         $('#activeWrap').show();
         userModal.show();
@@ -360,9 +360,10 @@
         if (!u) { alert('用户数据未找到，请刷新列表'); return; }
         roleAssignTarget = id;
         $('#roleModalUser').text(u.username || '');
+        const curRoles = String(u.roles || '').split(',').filter(function (r) { return r; });
         const $box = $('#roleCheckboxList').empty();
         ROLE_OPTIONS.forEach(function (r) {
-          const checked = (u.roles || []).indexOf(r.code) !== -1 ? 'checked' : '';
+          const checked = curRoles.indexOf(r.code) !== -1 ? 'checked' : '';
           $box.append(
             '<div class="form-check mb-2">'
             + '<input class="form-check-input role-cb" type="checkbox" value="' + r.code + '" id="rcb_' + r.code + '" ' + checked + '>'

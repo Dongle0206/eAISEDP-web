@@ -13,9 +13,12 @@
     .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
     .toolbar .spacer { flex:1; }
     .status-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
-    .status-in_progress { background:#e6f4ff; color:#1677ff; }
-    .status-completed { background:#f6ffed; color:#52c41a; }
-    .status-pending { background:#fff7e6; color:#faad14; }
+    .status-drafting { background:#f5f5f5; color:#999; }
+    .status-deriving { background:#e6f4ff; color:#1677ff; }
+    .status-reviewing { background:#f9f0ff; color:#722ed1; }
+    .status-testing { background:#fff7e6; color:#faad14; }
+    .status-deploying { background:#e6fffb; color:#08979c; }
+    .status-done { background:#f6ffed; color:#52c41a; }
     .status-unknown { background:#f5f5f5; color:#999; }
     .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
     .empty-row td { text-align:center; color:#999; padding:40px 0; }
@@ -32,9 +35,12 @@
         <span class="text-muted">状态：</span>
         <select id="statusFilter" class="form-select form-select-sm" style="width:auto;">
           <option value="">全部</option>
-          <option value="in_progress">进行中</option>
-          <option value="completed">已完成</option>
-          <option value="pending">待处理</option>
+          <option value="drafting">草稿</option>
+          <option value="deriving">派生中</option>
+          <option value="reviewing">评审中</option>
+          <option value="testing">测试中</option>
+          <option value="deploying">部署中</option>
+          <option value="done">已完成</option>
         </select>
       </label>
       <button id="newCaseBtn" class="btn btn-primary btn-sm">+ 新建 Case</button>
@@ -84,8 +90,8 @@
       // 路由保护：iframe/ajax 加载本页时，未登录跳登录页
       if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
 
-      const STATUS_TEXT = { in_progress: '进行中', completed: '已完成', pending: '待处理' };
-      const STATUS_CLASS = { in_progress: 'status-in_progress', completed: 'status-completed', pending: 'status-pending' };
+      const STATUS_TEXT = { drafting: '草稿', deriving: '派生中', reviewing: '评审中', testing: '测试中', deploying: '部署中', done: '已完成' };
+      const STATUS_CLASS = { drafting: 'status-drafting', deriving: 'status-deriving', reviewing: 'status-reviewing', testing: 'status-testing', deploying: 'status-deploying', done: 'status-done' };
 
       const state = { page: 1, size: 10, status: '', total: 0 };
 
