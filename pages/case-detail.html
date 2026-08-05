@@ -88,13 +88,13 @@
             <div class="col-md-4">
               <label class="form-label small">角色</label>
               <select id="roleSelect" class="form-select form-select-sm">
-                <option value="po">产品负责人（PO）</option>
-                <option value="ux">体验设计（UX）</option>
-                <option value="ba">业务分析（BA）</option>
-                <option value="dev">开发（Dev）</option>
-                <option value="reviewer">审查（Reviewer）</option>
-                <option value="qa">测试（QA）</option>
-                <option value="ops">运维（Ops）</option>
+                <option value="team-po">产品负责人（PO）</option>
+                <option value="team-ux">体验设计（UX）</option>
+                <option value="team-ba">业务分析（BA）</option>
+                <option value="team-dev">开发（Dev）</option>
+                <option value="team-reviewer">审查（Reviewer）</option>
+                <option value="team-qa">测试（QA）</option>
+                <option value="team-ops">运维（Ops）</option>
               </select>
             </div>
             <div class="col-md-8 d-flex align-items-end">
@@ -168,7 +168,7 @@
           bizPost('/api/v1/cases', { title: title, description: desc })
             .done(function (resp) {
               if (resp.code === 0) {
-                const newId = (resp.data && (resp.data.id || resp.data.caseId)) || '';
+                const newId = (resp.data && (resp.data.caseId || resp.data.id)) || '';
                 showCreateTip('创建成功，正在跳转详情...', 'success');
                 // 跳详情页（刷新 caseId 参数）
                 setTimeout(function () {

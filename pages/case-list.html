@@ -130,11 +130,11 @@
           const cls = STATUS_CLASS[status] || 'status-unknown';
           const txt = STATUS_TEXT[status] || status;
           return '<tr>'
-            + '<td class="case-code">' + escapeHtml(c.caseCode || c.code || c.id) + '</td>'
+            + '<td class="case-code">' + escapeHtml(c.caseId || c.caseCode || c.code) + '</td>'
             + '<td>' + escapeHtml(c.title || '') + '</td>'
             + '<td><span class="status-badge ' + cls + '">' + txt + '</span></td>'
             + '<td>' + escapeHtml(fmtTime(c.createdAt || c.createTime)) + '</td>'
-            + '<td><button class="btn btn-sm btn-outline-primary view-btn" data-id="' + escapeHtml(c.id) + '">查看</button></td>'
+            + '<td><button class="btn btn-sm btn-outline-primary view-btn" data-id="' + escapeHtml(c.caseId) + '">查看</button></td>'
             + '</tr>';
         });
         $('#caseTbody').html(rows.join(''));
