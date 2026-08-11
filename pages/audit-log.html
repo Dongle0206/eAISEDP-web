@@ -7,45 +7,86 @@
   <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
   <link rel="stylesheet" href="../assets/css/app.css">
   <style>
-    /* 本页局部样式（颜色沿用平台主色 #1677ff） */
     body { background:#f0f2f5; }
     .page-wrap { padding:20px; }
-    .section { background:#fff; border-radius:6px; padding:24px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .section { background:#fff; border-radius:6px; padding:16px 20px; margin-bottom:16px; }
     .section h6 { color:#1677ff; border-left:3px solid #1677ff; padding-left:8px; margin-bottom:14px; }
-    .building-card { text-align:center; padding:50px 20px; }
-    .building-icon { width:72px; height:72px; margin:0 auto 16px; border-radius:50%;
-      background:#e6f4ff; color:#1677ff; font-size:34px; display:flex; align-items:center; justify-content:center; }
-    .building-title { font-size:18px; font-weight:600; color:#333; margin-bottom:8px; }
-    .building-desc { color:#666; font-size:14px; max-width:520px; margin:0 auto 8px; line-height:1.7; }
-    .building-tech { color:#999; font-size:12px; margin-top:16px; }
-    .badge-tech { background:#f5f5f5; color:#666; padding:2px 8px; border-radius:10px; margin:0 4px; font-size:12px; }
-    .info-list { max-width:560px; margin:24px auto 0; }
-    .info-list li { color:#666; font-size:13px; line-height:2; }
+    .result-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+    .result-success { background:#f6ffed; color:#52c41a; }
+    .result-failure { background:#fff1f0; color:#ff4d4f; }
+    .result-unknown { background:#f5f5f5; color:#999; }
+    .action-tag { background:#e6f4ff; color:#1677ff; padding:2px 8px; border-radius:10px; font-size:12px; }
+    .detail-toggle { color:#1677ff; cursor:pointer; font-size:12px; }
+    .detail-toggle:hover { text-decoration:underline; }
+    .detail-content { background:#fafafa; border:1px solid #f0f0f0; border-radius:4px; padding:8px 10px;
+      font-size:12px; max-height:200px; overflow:auto; white-space:pre-wrap; word-break:break-all; margin-top:6px; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .meta-cell { color:#999; font-size:12px; }
   </style>
 </head>
 <body>
   <div class="page-wrap">
+
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">审计日志</h5>
+      <div class="spacer"></div>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">操作类型：</span>
+        <select id="actionFilter" class="form-select form-select-sm" style="width:auto;">
+          <option value="">全部</option>
+          <option value="login_success">登录成功</option>
+          <option value="login_failure">登录失败</option>
+          <option value="logout">退出</option>
+          <option value="case_create">创建 Case</option>
+          <option value="case_transit">Case 状态变更</option>
+          <option value="derivation">派生</option>
+          <option value="checkpoint">检查点审批</option>
+          <option value="user">用户操作</option>
+        </select>
+      </label>
+      <button id="refreshBtn" class="btn btn-primary btn-sm">查询</button>
+    </div>
+
+    <!-- 表格 -->
     <div class="section">
-      <h6>审计日志</h6>
-      <div class="building-card">
-        <div class="building-icon">📋</div>
-        <div class="building-title">审计日志查看功能建设中</div>
-        <div class="building-desc">
-          审计数据已通过治理层落库到 <code>t_governance_log</code>，包含 Case 派生、检查点审批、产物操作、用户与权限变更等关键行为记录。
-          查询 API 计划在 M3-2 后续迭代暴露，届时本页将提供按时间 / 用户 / 操作类型 / Case 的多维检索与导出。
-        </div>
-        <ul class="info-list list-unstyled">
-          <li>· 数据存储：<code>t_governance_log</code>（治理日志表，已启用写入）</li>
-          <li>· 当前状态：写入链路已通，查询 API 待开发</li>
-          <li>· 预计能力：时间范围筛选、操作类型筛选、用户追溯、Case 关联、CSV 导出</li>
-        </ul>
-        <div class="building-tech">
-          <span class="badge-tech">M3-2</span>
-          <span class="badge-tech">t_governance_log</span>
-          <span class="badge-tech">API 待暴露</span>
-        </div>
+      <div class="table-responsive">
+        <table class="table table-bordered table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th style="width:170px;">时间</th>
+              <th style="width:110px;">用户</th>
+              <th style="width:130px;">操作类型</th>
+              <th style="width:100px;">资源类型</th>
+              <th>资源ID</th>
+              <th style="width:80px;">结果</th>
+              <th style="width:110px;">IP</th>
+              <th style="width:70px;">详情</th>
+            </tr>
+          </thead>
+          <tbody id="logTbody">
+            <tr class="empty-row"><td colspan="8">加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 分页 -->
+      <div class="pager">
+        <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+        <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+        <span id="pageNumbers" style="font-size:13px;"></span>
+        <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+        <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+          <option value="20">20/页</option>
+          <option value="50">50/页</option>
+          <option value="100">100/页</option>
+        </select>
       </div>
     </div>
+
   </div>
 
   <script src="../assets/js/jquery-3.7.1.min.js"></script>
@@ -57,9 +98,150 @@
     $(function () {
       const API = window.EAISELP_API;
       const CFG = window.EAISELP_CONFIG;
-      // 路由保护：iframe 内访问未登录跳登录页
       if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
-      // 占位页：后端查询 API 未暴露，无需调接口
+
+      const state = { page: 1, size: 20, action: '', total: 0 };
+
+      // 操作类型中文映射（后端 action 英文，前端展示中文）
+      const ACTION_TEXT = {
+        login_success: '登录成功', login_failure: '登录失败', logout: '退出',
+        case_create: '创建 Case', case_transit: 'Case 状态变更',
+        derivation: '派生', checkpoint: '检查点审批',
+        user_create: '创建用户', user_update: '修改用户', user_delete: '删除用户',
+        role_grant: '授权角色', role_revoke: '撤销角色'
+      };
+
+      // GET /api/v1/audit-logs?page=&size=&action=
+      function loadList() {
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.action) params.set('action', state.action);
+        $('#logTbody').html('<tr class="empty-row"><td colspan="8">加载中...</td></tr>');
+        API.bizGet('/api/v1/audit-logs?' + params.toString()).done(function (resp) {
+          if (resp.code !== 0) { renderError(resp.msg || '加载失败'); return; }
+          const data = resp.data || {};
+          // IPage 结构: records / total / current / size
+          const list = data.records || data.list || data.items || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          if (xhr.status === 403) {
+            renderError('无审计日志读取权限（需 audit:read 权限）');
+          } else {
+            renderError((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'));
+          }
+        });
+      }
+
+      function renderError(msg) {
+        $('#logTbody').html('<tr class="empty-row"><td colspan="8">' + escapeHtml(msg) + '</td></tr>');
+        $('#pageInfo').text('');
+        $('#pageNumbers').html('');
+      }
+
+      function renderTable(list) {
+        if (!list.length) {
+          $('#logTbody').html('<tr class="empty-row"><td colspan="8">暂无审计日志记录</td></tr>');
+          return;
+        }
+        const rows = list.map(function (log) {
+          const id = log.id || '';
+          const time = fmtTime(log.createTime || log.createdAt);
+          const username = log.username || (log.userId != null ? '用户' + log.userId : '系统');
+          const action = log.action || '-';
+          const actionTxt = ACTION_TEXT[action] || action;
+          const resType = log.resourceType || '-';
+          const resId = log.resourceId || '-';
+          const result = log.result || 'unknown';
+          const resultCls = result === 'success' ? 'result-success' : result === 'failure' ? 'result-failure' : 'result-unknown';
+          const resultTxt = result === 'success' ? '成功' : result === 'failure' ? '失败' : result;
+          const ip = log.ipAddress || '-';
+          const hasDetail = !!log.detail;
+          const hasError = !!log.errorMsg;
+
+          return '<tr>'
+            + '<td class="meta-cell">' + escapeHtml(time) + '</td>'
+            + '<td>' + escapeHtml(username) + '</td>'
+            + '<td><span class="action-tag">' + escapeHtml(actionTxt) + '</span></td>'
+            + '<td>' + escapeHtml(resType) + '</td>'
+            + '<td class="meta-cell">' + escapeHtml(resId) + '</td>'
+            + '<td><span class="result-badge ' + resultCls + '">' + resultTxt + '</span></td>'
+            + '<td class="meta-cell">' + escapeHtml(ip) + '</td>'
+            + '<td>' + (hasDetail || hasError
+                ? '<span class="detail-toggle" data-id="' + escapeHtml(id) + '">展开</span>' : '-')
+            + '</td>'
+            + '</tr>'
+            // 详情行（默认隐藏，点击展开）
+            + '<tr class="detail-row d-none" data-detail-for="' + escapeHtml(id) + '">'
+            + '<td colspan="8">'
+            + (hasError ? '<div class="detail-content text-danger">错误：' + escapeHtml(log.errorMsg) + '</div>' : '')
+            + (hasDetail ? '<div class="detail-content">' + escapeHtml(formatJson(log.detail)) + '</div>' : '')
+            + '</td></tr>';
+        });
+        $('#logTbody').html(rows.join(''));
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        const cur = state.page;
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + cur + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', cur <= 1);
+        $('#nextBtn').prop('disabled', cur >= totalPages);
+      }
+
+      // 格式化 JSON 字符串（美化展示）
+      function formatJson(str) {
+        if (!str) return '';
+        try {
+          return JSON.stringify(JSON.parse(str), null, 2);
+        } catch (e) {
+          return str; // 非 JSON 原样返回
+        }
+      }
+
+      // XSS 防护
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function fmtTime(t) {
+        if (!t) return '-';
+        const d = typeof t === 'number' ? new Date(t) : new Date(t);
+        if (isNaN(d.getTime())) return String(t);
+        const p = function (n) { return n < 10 ? '0' + n : n; };
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+          + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+      }
+
+      // 事件绑定
+      $('#actionFilter').on('change', function () { state.action = $(this).val(); state.page = 1; });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#refreshBtn').on('click', function () { state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+
+      // 详情展开/收起（事件委托）
+      $('#logTbody').on('click', '.detail-toggle', function () {
+        const id = $(this).data('id');
+        const $row = $('.detail-row[data-detail-for="' + id + '"]');
+        if ($row.hasClass('d-none')) {
+          $row.removeClass('d-none');
+          $(this).text('收起');
+        } else {
+          $row.addClass('d-none');
+          $(this).text('展开');
+        }
+      });
+
+      // 首次加载
+      loadList();
     });
   </script>
 </body>
