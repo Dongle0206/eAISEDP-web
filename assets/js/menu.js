@@ -11,45 +11,28 @@
   ];
 
   // 角色码 → 角色专属导航项映射
+  // 注意：只有带 page 字段的菜单项才会显示实际页面；
+  // 没有 page 的菜单项在 index.html openTab 中会显示"建设中"占位。
+  // 下面的菜单已经过滤掉未实现的项，只保留有实际页面的功能。
   const ROLE_MENUS = {
     platform_admin: [
-      { key: 'system', title: '系统管理' },
-      { key: 'tenant', title: '租户管理' },
-      { key: 'model', title: '模型路由' },
-      { key: 'adapter', title: '适配器配置' },
-      { key: 'monitor', title: '系统监控' }
+      { key: 'case-manage', title: 'Case 管理', page: 'pages/case-list.html' },
+      { key: 'user', title: '用户管理', page: 'pages/user-list.html' },
+      { key: 'audit-log', title: '审计日志', page: 'pages/audit-log.html' }
     ],
     tenant_admin: [
       { key: 'case-manage', title: 'Case 管理', page: 'pages/case-list.html' },
       { key: 'user', title: '用户管理', page: 'pages/user-list.html' },
-      { key: 'audit-log', title: '审计日志', page: 'pages/audit-log.html' },
-      { key: 'role', title: '角色管理' },
-      { key: 'program', title: '项目群看板' },
-      { key: 'standard', title: '工程标准' },
-      { key: 'quota', title: '配额' }
+      { key: 'audit-log', title: '审计日志', page: 'pages/audit-log.html' }
     ],
     project_manager: [
-      // M3 新增：Case 管理（列表 + 详情 + 发起派生）。page 字段指向 pages/ 下页面，
-      // 由 index.html 的 openTab 消费（读 menu.page → iframe 加载）。
-      { key: 'case-manage', title: 'Case 管理', page: 'pages/case-list.html' },
-      { key: 'case-board', title: 'Case 看板' },
-      { key: 'derive-progress', title: '派生进度' },
-      { key: 'checkpoint', title: '检查点审批' },
-      { key: 'artifact-pm', title: '产物查看' }
+      { key: 'case-manage', title: 'Case 管理', page: 'pages/case-list.html' }
     ],
     engineer: [
-      { key: 'case-manage', title: 'Case 管理', page: 'pages/case-list.html' },
-      { key: 'review-todo', title: '待办审查' },
-      { key: 'case-detail', title: 'Case 详情' },
-      { key: 'artifact-eng', title: '产物查看' },
-      { key: 'my-task', title: '我的任务' }
+      { key: 'case-manage', title: 'Case 管理', page: 'pages/case-list.html' }
     ],
     executive: [
-      { key: 'strategy', title: '战略看板' },
-      { key: 'investment', title: '投资概览' },
-      { key: 'risk', title: '风险矩阵' },
-      { key: 'milestone', title: '里程碑' },
-      { key: 'dora', title: '效能度量' }
+      { key: 'case-manage', title: 'Case 管理', page: 'pages/case-list.html' }
     ]
   };
   // 平台识别的角色码白名单（ea/pgm/orchestrator 不在内 → 不映射）
