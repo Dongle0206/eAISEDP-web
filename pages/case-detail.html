@@ -359,7 +359,9 @@
           }
         });
         html += '</div>';
-        html += '<div style="margin-top:8px;font-size:12px;color:#999;">进度: ' + state.completedSteps() + '/' + state.totalSteps();
+        html += '<div style="margin-top:8px;font-size:12px;color:#999;">进度: '
+          + (state.steps || []).filter(function(s) { return s.status === 'success' || s.status === 'failed'; }).length
+          + '/' + (state.steps || []).length;
         if (state.currentRole) { html += ' | 当前: ' + escapeHtml(state.currentRole); }
         html += '</div>';
         $('#orchestrateSteps').html(html);
