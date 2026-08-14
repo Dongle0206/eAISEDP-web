@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>系统监控 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>body{background:#f0f2f5;margin:0;}.monitor-wrap{padding:20px;}.section{background:#fff;border-radius:6px;padding:16px 20px;margin-bottom:16px;}iframe{width:100%;border:none;border-radius:6px;}</style>
+</head>
+<body>
+  <div class="monitor-wrap">
+    <div class="section">
+      <div class="d-flex align-items-center justify-content-between">
+        <h5 class="mb-0">系统监控</h5>
+        <div>
+          <label class="small text-muted me-2">Grafana URL:</label>
+          <input id="grafanaUrl" type="text" class="form-control form-control-sm d-inline-block" style="width:300px;" placeholder="http://localhost:3000" value="">
+          <button id="loadGrafana" class="btn btn-primary btn-sm ms-1">加载</button>
+        </div>
+      </div>
+    </div>
+    <div class="section">
+      <h6>健康检查</h6>
+      <div id="healthStatus" class="row"></div>
+    </div>
+    <div class="section">
+      <h6>Grafana 仪表盘</h6>
+      <div id="grafanaFrame"><div class="text-center text-muted py-5">输入 Grafana URL 后点击"加载"（需 Grafana 已部署且允许 iframe 嵌入）</div></div>
+    </div>
+    <div class="section">
+      <h6>Prometheus 指标（原始）</h6>
+      <div id="promMetrics" class="text-center text-muted py-3"><button id="loadMetrics" class="btn btn-outline-secondary btn-sm">加载 Prometheus 指标</button></div>
+    </div>
+  </div>
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function(){const API=window.EAISELP_API,CFG=window.EAISELP_CONFIG;if(!API.getToken()){location.href='../'+CFG.LOGIN_PAGE;return;}
+    function checkHealth(){$('#healthStatus').html('');
+    var services=[{name:'Auth (8085)',url:'http://localhost:8085/actuator/health'},{name:'Runtime (8081)',url:'http://localhost:8081/actuator/health'}];
+    services.forEach(function(s){
+    $.ajax({url:s.url,method:'GET',timeout:5000,dataType:'json'}).done(function(r){var up=r&&r.status==='UP';$('#healthStatus').append('<div class="col-md-6 mb-2"><div class="d-flex align-items-center p-2 border rounded"><span style="font-size:20px;margin-right:8px;">'+(up?'🟢':'🔴')+'</span><div><strong>'+s.name+'</strong><div class="small text-muted">'+(up?'运行正常':JSON.stringify(r))+'</div></div></div></div>');}).fail(function(){$('#healthStatus').append('<div class="col-md-6 mb-2"><div class="d-flex align-items-center p-2 border rounded"><span style="font-size:20px;margin-right:8px;">🔴</span><div><strong>'+s.name+'</strong><div class="small text-danger">无法连接</div></div></div></div>');});});}
+    $('#loadGrafana').on('click',function(){var u=$('#grafanaUrl').val().trim();if(!u){alert('请输入 Grafana URL');return;}$('#grafanaFrame').html('<iframe src="'+u+'" height="600"></iframe>');});
+    $('#loadMetrics').on('click',function(){$(this).prop('disabled',true).text('加载中...');
+    $.ajax({url:'http://localhost:8081/actuator/prometheus',method:'GET',timeout:10000,dataType:'text'}).done(function(t){var lines=t.split('\n').filter(function(l){return l&&!l.startsWith('#');});
+    $('#promMetrics').html('<pre style="background:#1e1e1e;color:#d4d4d4;padding:12px;border-radius:6px;font-size:11px;max-height:400px;overflow:auto;">'+lines.slice(0,100).join('\n')+(lines.length>100?'\n... ('+lines.length+' 行，仅显示前 100)':'')+'</pre>');}).fail(function(){$('#promMetrics').html('<div class="text-danger">无法获取 Prometheus 指标</div>');});});
+    checkHealth();});
+  </script>
+</body>
+</html>

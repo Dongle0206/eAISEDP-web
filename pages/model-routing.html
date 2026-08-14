@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>模型路由 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>body{background:#f0f2f5;}.page-wrap{padding:20px;}.section{background:#fff;border-radius:6px;padding:16px 20px;margin-bottom:16px;}.tier-badge{background:#e6f4ff;color:#1677ff;padding:2px 8px;border-radius:10px;font-size:12px;margin-right:4px;}</style>
+</head>
+<body>
+  <div class="page-wrap">
+    <div class="section">
+      <h5 class="mb-0">模型路由配置</h5>
+      <p class="text-muted small mb-0">角色能力档位(tier) → 具体模型映射。换模型只改这里，不改代码（P8 解耦层）。</p>
+    </div>
+    <div class="section">
+      <div id="routingList"><div class="text-center text-muted py-4">加载中...</div></div>
+    </div>
+  </div>
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function(){const API=window.EAISELP_API,CFG=window.EAISELP_CONFIG;if(!API.getToken()){location.href='../'+CFG.LOGIN_PAGE;return;}
+    API.bizGet('/api/v1/model-routing').done(function(r){if(r.code!==0){$('#routingList').html('<div class="text-danger">加载失败: '+esc(r.msg)+'</div>');return;}
+    var l=r.data||[];if(!l.length){$('#routingList').html('<div class="text-center text-muted py-4">暂无模型路由配置</div>');return;}
+    var tierOrder={};l.forEach(function(m){if(!tierOrder[m.tier])tierOrder[m.tier]=[];tierOrder[m.tier].push(m);});
+    var html='';Object.keys(tierOrder).sort().forEach(function(tier){
+    html+='<div class="mb-3"><span class="tier-badge">'+esc(tier)+'</span></div>';
+    html+='<table class="table table-sm table-bordered"><thead><tr><th>厂商</th><th>模型</th><th>优先级</th><th>状态</th><th>API Key 环境变量</th><th>Base URL</th></tr></thead><tbody>';
+    tierOrder[tier].forEach(function(m){html+='<tr><td>'+esc(m.provider)+'</td><td><strong>'+esc(m.model)+'</strong></td><td>'+esc(m.priority)+'</td><td>'+(m.enabled?'<span class="badge bg-success">启用</span>':'<span class="badge bg-secondary">停用</span>')+'</td><td><code>'+esc(m.apiKeyEnv||'-')+'</code></td><td style="font-size:12px;">'+esc(m.baseUrl||'-')+'</td></tr>';});
+    html+='</tbody></table>';});
+    $('#routingList').html(html);}).fail(function(){$('#routingList').html('<div class="text-danger py-4">请求失败</div>');});
+    function esc(s){if(s==null)return'';return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+    });
+  </script>
+</body>
+</html>

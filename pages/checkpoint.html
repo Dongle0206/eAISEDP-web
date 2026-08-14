@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>检查点审批 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body{background:#f0f2f5;}.page-wrap{padding:20px;}
+    .section{background:#fff;border-radius:6px;padding:16px 20px;margin-bottom:16px;}
+    .cp-item{border:1px solid #e8e8e8;border-radius:6px;padding:14px 16px;margin-bottom:12px;}
+    .cp-pending{border-left:3px solid #faad14;}
+    .cp-confirmed{border-left:3px solid #52c41a;opacity:.7;}
+    .cp-rejected{border-left:3px solid #ff4d4f;opacity:.7;}
+    .status-badge{font-size:12px;padding:2px 8px;border-radius:10px;}
+    .st-pending{background:#fff7e6;color:#faad14;}.st-confirmed{background:#f6ffed;color:#52c41a;}.st-rejected{background:#fff1f0;color:#ff4d4f;}
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <div class="section">
+      <div class="d-flex align-items-center mb-2">
+        <h5 class="mb-0">检查点审批</h5>
+        <div class="ms-3"><select id="caseFilter" class="form-select form-select-sm" style="width:auto;"><option value="">选择 Case...</option></select></div>
+      </div>
+      <p class="text-muted small mb-0">不可逆操作（部署/DDL/数据删除）前的人工确认。pending 状态需审批，confirmed/rejected 为已处理。</p>
+    </div>
+    <div class="section">
+      <div id="cpList"><div class="text-center text-muted py-4">选择 Case 后加载检查点</div></div>
+    </div>
+  </div>
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function(){const API=window.EAISELP_API,CFG=window.EAISELP_CONFIG;if(!API.getToken()){location.href='../'+CFG.LOGIN_PAGE;return;}
+    function loadCases(){API.bizGet('/api/v1/cases?page=1&size=50').done(function(r){if(r.code!==0)return;var l=(r.data&&(r.data.records||r.data.list)||[]);var $s=$('#caseFilter').empty().append('<option value="">选择 Case...</option>');l.forEach(function(c){$s.append('<option value="'+esc(c.caseId)+'">'+esc(c.caseId)+' | '+esc(c.title||'')+'</option>');});});}
+    function loadCheckpoints(cid){$('#cpList').html('<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>');
+    API.bizGet('/api/v1/cases/'+encodeURIComponent(cid)+'/checkpoints').done(function(r){if(r.code!==0){$('#cpList').html('<div class="text-danger py-4">'+esc(r.msg||'加载失败')+'</div>');return;}
+    var l=r.data||[];if(!l.length){$('#cpList').html('<div class="text-center text-muted py-4">该 Case 暂无检查点</div>');return;}
+    $('#cpList').html(l.map(function(cp){var st=cp.status||'pending';var cls=st==='pending'?'cp-pending':st==='confirmed'?'cp-confirmed':'cp-rejected';
+    var stBadge='<span class="status-badge st-'+st+'">'+({pending:'待审批',confirmed:'已确认',rejected:'已拒绝'}[st]||st)+'</span>';
+    var html='<div class="cp-item '+cls+'"><div class="d-flex justify-content-between"><div><strong>'+esc(cp.operation||'未知操作')+'</strong> '+stBadge+'</div><div class="text-muted" style="font-size:12px;">'+esc(cp.createdAt||cp.createTime||'')+'</div></div>';
+    if(cp.derivationId)html+='<div class="text-muted mt-1" style="font-size:12px;">关联派生: #'+esc(cp.derivationId)+'</div>';
+    if(cp.comment)html+='<div class="text-muted mt-1" style="font-size:12px;">备注: '+esc(cp.comment)+'</div>';
+    if(cp.confirmedBy)html+='<div class="text-muted mt-1" style="font-size:12px;">处理人: '+esc(cp.confirmedBy)+'</div>';
+    if(st==='pending'){html+='<div class="mt-2"><button class="btn btn-success btn-sm cp-confirm" data-id="'+cp.id+'">✓ 确认放行</button> <button class="btn btn-danger btn-sm cp-reject" data-id="'+cp.id+'">✗ 拒绝</button></div>';}
+    html+='</div>';return html;}).join(''));}).fail(function(){$('#cpList').html('<div class="text-danger py-4">请求失败</div>');});}
+    $('#caseFilter').on('change',function(){var v=$(this).val();if(v)loadCheckpoints(v);});
+    $('#cpList').on('click','.cp-confirm',function(){var id=$(this).data('id');var c=prompt('确认备注（可选）:','');API.bizPost('/api/v1/checkpoints/'+id+'/confirm',JSON.stringify({comment:c||''})).done(function(r){if(r.code===0){alert('已确认');var cid=$('#caseFilter').val();if(cid)loadCheckpoints(cid);}else{alert(r.msg||'操作失败');}});});
+    $('#cpList').on('click','.cp-reject',function(){var id=$(this).data('id');var c=prompt('拒绝原因:','');if(!c){alert('请填写拒绝原因');return;}API.bizPost('/api/v1/checkpoints/'+id+'/reject',JSON.stringify({comment:c})).done(function(r){if(r.code===0){alert('已拒绝');var cid=$('#caseFilter').val();if(cid)loadCheckpoints(cid);}else{alert(r.msg||'操作失败');}});});
+    function esc(s){if(s==null)return'';return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+    loadCases();});
+  </script>
+</body>
+</html>

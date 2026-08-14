@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>配额管理 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>body{background:#f0f2f5;}.page-wrap{padding:20px;}.section{background:#fff;border-radius:6px;padding:16px 20px;margin-bottom:16px;}.progress{height:20px;}</style>
+</head>
+<body>
+  <div class="page-wrap">
+    <div class="section"><h5 class="mb-0">配额管理</h5><p class="text-muted small mb-0">租户月度派生次数与 token 消耗配额。超限自动拒绝派生（429）。</p></div>
+    <div class="section"><div id="quotaList"><div class="text-center text-muted py-4">加载中...</div></div></div>
+  </div>
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function(){const API=window.EAISELP_API,CFG=window.EAISELP_CONFIG;if(!API.getToken()){location.href='../'+CFG.LOGIN_PAGE;return;}
+    API.bizGet('/api/v1/quotas').done(function(r){if(r.code!==0){$('#quotaList').html('<div class="text-danger">加载失败</div>');return;}
+    var l=r.data||[];if(!Array.isArray(l)){l=l.records||l.list||[];}
+    if(!l.length){$('#quotaList').html('<div class="text-center text-muted py-4">暂无配额记录</div>');return;}
+    $('#quotaList').html(l.map(function(q){var dPct=q.derivationLimit>0?Math.min(100,Math.round((q.derivationUsed||0)/q.derivationLimit*100)):0;
+    var tPct=q.tokenLimit>0?Math.min(100,Math.round((q.tokenUsed||0)/q.tokenLimit*100)):0;
+    var dColor=dPct>80?'bg-danger':dPct>50?'bg-warning':'bg-success';
+    var tColor=tPct>80?'bg-danger':tPct>50?'bg-warning':'bg-success';
+    return '<div class="mb-3"><h6>租户 #'+esc(q.tenantId)+' | '+esc(q.period||'')+'</h6>'+
+    '<div class="row"><div class="col-md-6"><label class="small">派生次数: '+(q.derivationUsed||0)+' / '+(q.derivationLimit||'∞')+'</label><div class="progress"><div class="progress-bar '+dColor+'" style="width:'+dPct+'%">'+dPct+'%</div></div></div>'+
+    '<div class="col-md-6"><label class="small">Token 消耗: '+(q.tokenUsed||0)+' / '+(q.tokenLimit||'∞')+'</label><div class="progress"><div class="progress-bar '+tColor+'" style="width:'+tPct+'%">'+tPct+'%</div></div></div></div></div>';}).join(''));}).fail(function(){$('#quotaList').html('<div class="text-danger py-4">请求失败</div>');});
+    function esc(s){if(s==null)return'';return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+    });
+  </script>
+</body>
+</html>
