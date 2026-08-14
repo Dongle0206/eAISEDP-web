@@ -102,52 +102,45 @@
         });
       }
 
-      // 加载某个 Case 的所有派生产出
+      // 加载某个 Case 的所有派生产出（从 t_artifact 表取，content 全文在这里）
       function loadArtifacts(caseId) {
         $('#artifactList').html('<div class="empty-state" style="padding:40px;"><div class="spinner-border text-primary"></div></div>');
 
-        // 调用派生列表 API（含 output 全文）
-        API.bizGet('/api/v1/cases/' + encodeURIComponent(caseId) + '/derivations').done(function (resp) {
+        // 调用产物 API（t_artifact 表，含 content 全文）
+        API.bizGet('/api/v1/cases/' + encodeURIComponent(caseId) + '/artifacts').done(function (resp) {
           if (resp.code !== 0) {
             $('#artifactList').html('<div class="empty-state" style="padding:40px;color:#ff4d4f;">' + escapeHtml(resp.msg || '加载失败') + '</div>');
             return;
           }
-          const data = resp.data || {};
-          const list = data.records || data.list || data.items || (Array.isArray(data) ? data : []);
+          const list = resp.data || [];
+          if (!Array.isArray(list)) { const d = list; list = d.records || d.list || d.items || []; }
 
           if (!list.length) {
-            $('#artifactList').html('<div class="empty-state" style="padding:40px;"><div style="font-size:13px;">该 Case 暂无派生产出</div></div>');
+            $('#artifactList').html('<div class="empty-state" style="padding:40px;"><div style="font-size:13px;">该 Case 暂无派生产出<br><br>请先在 Case 详情页发起派生</div></div>');
             return;
           }
 
-          const html = list.map(function (d, i) {
-            const role = d.role || d.roleCode || '-';
+          const html = list.map(function (a, i) {
+            const role = a.role || '-';
             const roleText = ROLE_TEXT[role] || role;
-            const status = d.status || 'unknown';
-            const statusColor = status === 'success' ? '#52c41a' : status === 'failed' ? '#ff4d4f' : '#1677ff';
-            const model = d.model || '';
-            const inTok = d.inputTokens != null ? d.inputTokens : '';
-            const outTok = d.outputTokens != null ? d.outputTokens : '';
-            const hasOutput = !!(d.output || d.summary || d.result);
+            const type = a.type || 'other';
+            const typeText = TYPE_TEXT[type] || type;
+            const hasContent = !!a.content;
+            const title = a.title || typeText;
 
             return '<div class="artifact-item' + (i === 0 ? ' active' : '') + '" data-idx="' + i + '">'
               + '<div>'
               + '<span class="artifact-role">' + escapeHtml(roleText) + '</span>'
-              + '<span class="artifact-type">' + escapeHtml(TYPE_TEXT[d.type] || status) + '</span>'
-              + '<span style="float:right;font-size:11px;color:' + statusColor + ';">' + status + '</span>'
+              + '<span class="artifact-type">' + escapeHtml(typeText) + '</span>'
+              + (hasContent ? '' : '<span style="float:right;font-size:11px;color:#ff4d4f;">无内容</span>')
               + '</div>'
-              + (model ? '<div class="artifact-meta">模型: ' + escapeHtml(model) + '</div>' : '')
-              + (inTok !== '' ? '<div class="artifact-meta">Token: in ' + escapeHtml(inTok) + ' / out ' + escapeHtml(outTok) + '</div>' : '')
-              + '<div class="artifact-meta">' + escapeHtml(fmtTime(d.createdAt || d.createTime)) + '</div>'
+              + '<div class="artifact-title">' + escapeHtml(title) + '</div>'
+              + '<div class="artifact-meta">' + escapeHtml(fmtTime(a.createdAt || a.createTime)) + '</div>'
               + '</div>';
           }).join('');
 
           $('#artifactList').html(html);
-
-          // 存储数据供点击查看
           window._artifacts = list;
-
-          // 默认显示第一个
           if (list.length) showDetail(0);
 
         }).fail(function (xhr) {
@@ -157,38 +150,41 @@
 
       // 显示产物详情
       function showDetail(idx) {
-        const d = (window._artifacts || [])[idx];
-        if (!d) return;
+        const a = (window._artifacts || [])[idx];
+        if (!a) return;
 
         $('.artifact-item').removeClass('active');
         $('.artifact-item[data-idx="' + idx + '"]').addClass('active');
 
-        const role = d.role || '-';
+        const role = a.role || '-';
         const roleText = ROLE_TEXT[role] || role;
-        const content = d.output || d.summary || d.result || '';
-        const model = d.model || '';
-        const inTok = d.inputTokens != null ? d.inputTokens : '-';
-        const outTok = d.outputTokens != null ? d.outputTokens : '-';
-        const task = d.task || d.taskDesc || '';
+        const type = a.type || 'other';
+        const typeText = TYPE_TEXT[type] || type;
+        const content = a.content || '';
+
+        // 从 frontmatter 解析 model/token 信息
+        let model = '', inTok = '-', outTok = '-';
+        if (a.frontmatter) {
+          try {
+            const fm = JSON.parse(a.frontmatter);
+            model = fm.model || '';
+            inTok = fm.input_tokens != null ? fm.input_tokens : '-';
+            outTok = fm.output_tokens != null ? fm.output_tokens : '-';
+          } catch (e) {}
+        }
 
         let html = '<div class="toolbar">';
         html += '<h5 style="margin:0;">' + escapeHtml(roleText) + ' 产出</h5>';
-        html += '<span class="badge bg-secondary">' + escapeHtml(TYPE_TEXT[d.type] || d.status || '-') + '</span>';
+        html += '<span class="badge bg-secondary">' + escapeHtml(typeText) + '</span>';
         if (model) html += '<span class="badge bg-info">' + escapeHtml(model) + '</span>';
         html += '<span class="token-badge">in: ' + inTok + ' / out: ' + outTok + '</span>';
         html += '</div>';
-
-        if (task) {
-          html += '<div style="background:#fffbeb;border:1px solid #fef3c7;border-radius:6px;padding:12px 16px;margin-bottom:16px;font-size:13px;color:#92400e;">';
-          html += '<strong>派生任务：</strong>' + escapeHtml(task);
-          html += '</div>';
-        }
 
         html += '<div class="markdown-body">';
         if (content) {
           html += renderMarkdown(content);
         } else {
-          html += '<div class="empty-state"><div>该派生无产出内容</div></div>';
+          html += '<div class="empty-state"><div>该产物无内容</div></div>';
         }
         html += '</div>';
 
