@@ -80,7 +80,23 @@
         <button class="btn btn-sm btn-outline-secondary mt-2" id="backListBtn">← 返回列表</button>
       </div>
 
-      <!-- 中：发起派生 -->
+      <!-- 中上：一键编排 -->
+      <div class="section" style="border:2px solid #1677ff;">
+        <h6>🚀 一键编排（自动全流程）</h6>
+        <p class="text-muted" style="font-size:13px;margin-bottom:10px;">输入一句话需求，平台自动按流水线派生 6 个角色（PO→SE→Dev→Reviewer→QA→Ops），每步自动传递上下文。</p>
+        <form id="orchestrateForm">
+          <div class="mb-2">
+            <textarea id="orchestrateInput" class="form-control" rows="2" maxlength="2000" placeholder="例如：开发一个信息共享网页，包括标题，内容（支持富文本），附件（非必填）" required></textarea>
+          </div>
+          <button type="submit" id="orchestrateBtn" class="btn btn-primary btn-sm">🚀 一键编排</button>
+        </form>
+        <div id="orchestrateProgress" class="mt-3 d-none">
+          <div id="orchestrateSteps" style="font-size:13px;"></div>
+          <div id="orchestrateTip" class="alert d-none mt-2 mb-0 py-2"></div>
+        </div>
+      </div>
+
+      <!-- 中下：单角色派生（手动） -->
       <div class="section">
         <h6>发起派生</h6>
         <form id="deriveForm">
@@ -151,6 +167,7 @@
         $('#detailView').removeClass('d-none');
         loadDetail(caseId);
         loadTimeline(caseId);
+        bindOrchestrate(caseId);
         bindDerive(caseId);
       }
 
@@ -252,7 +269,115 @@
           + '</div>';
       }
 
-      // ---- 发起派生 ----
+      // ---- 一键编排 ----
+      function bindOrchestrate(id) {
+        $('#orchestrateForm').on('submit', function (e) {
+          e.preventDefault();
+          const requirement = $('#orchestrateInput').val().trim();
+          if (!requirement) { showOrchestrateTip('请输入需求描述', 'danger'); return; }
+          const $btn = $('#orchestrateBtn').prop('disabled', true).text('编排提交中...');
+          showOrchestrateTip('正在提交编排请求...', 'info');
+
+          bizPost('/api/runtime/orchestrate', { requirement: requirement, caseId: id, tier: 'fast' })
+            .done(function (resp) {
+              if (resp.code === 0 && resp.data) {
+                var orchId = resp.data.orchestrationId;
+                showOrchestrateTip('编排已启动（ID: ' + orchId + '），流水线执行中...', 'info');
+                $btn.text('编排执行中...');
+                pollOrchestration(orchId, id, $btn);
+              } else {
+                showOrchestrateTip(resp.msg || '编排启动失败', 'danger');
+                $btn.prop('disabled', false).text('🚀 一键编排');
+              }
+            })
+            .fail(function (xhr) {
+              showOrchestrateTip((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败(' + xhr.status + ')'), 'danger');
+              $btn.prop('disabled', false).text('🚀 一键编排');
+            });
+        });
+      }
+
+      function pollOrchestration(orchId, caseId, $btn) {
+        var maxAttempts = 120; // 最多轮询 120 次（120 × 5 秒 = 10 分钟超时）
+        var attempt = 0;
+        function poll() {
+          attempt++;
+          if (attempt > maxAttempts) {
+            showOrchestrateTip('编排超时（10 分钟），请稍后在产物查看查看结果', 'warning');
+            $btn.prop('disabled', false).text('🚀 一键编排');
+            return;
+          }
+          $.ajax({
+            url: CFG.API_BASE_URL + '/api/runtime/orchestrate/' + orchId,
+            method: 'GET',
+            headers: { 'Authorization': 'Bearer ' + API.getToken() },
+            dataType: 'json'
+          }).done(function (resp) {
+            if (resp.code === 0 && resp.data) {
+              var state = resp.data;
+              renderOrchestrateSteps(state);
+              if (state.status === 'done' || state.status === 'failed') {
+                var success = (state.steps || []).filter(function(s) { return s.status === 'success'; }).length;
+                var total = (state.steps || []).length;
+                if (success === total) {
+                  showOrchestrateTip('🎉 编排完成！' + success + '/' + total + ' 步全部成功，已刷新时间线', 'success');
+                } else {
+                  showOrchestrateTip('编排完成（' + success + '/' + total + ' 步成功），部分步骤失败请查看详情', 'warning');
+                }
+                $btn.prop('disabled', false).text('🚀 一键编排');
+                loadTimeline(caseId);
+                return;
+              }
+              // 继续轮询
+              setTimeout(poll, 5000);
+            } else {
+              setTimeout(poll, 5000);
+            }
+          }).fail(function () {
+            setTimeout(poll, 5000);
+          });
+        }
+        setTimeout(poll, 2000);
+      }
+
+      function renderOrchestrateSteps(state) {
+        var steps = state.steps || [];
+        var icon = { pending: '⏳', running: '🔄', success: '✅', failed: '❌' };
+        var color = { pending: '#999', running: '#1677ff', success: '#52c41a', failed: '#ff4d4f' };
+        var html = '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+        steps.forEach(function (s, i) {
+          html += '<div style="text-align:center;min-width:100px;">';
+          html += '<div style="font-size:20px;">' + (icon[s.status] || '⏳') + '</div>';
+          html += '<div style="font-size:12px;color:' + (color[s.status] || '#999') + ';font-weight:600;">' + escapeHtml(s.roleLabel || s.role) + '</div>';
+          html += '<div style="font-size:11px;color:#999;">' + escapeHtml(s.artifactType || '') + '</div>';
+          if (s.status === 'failed' && s.error) {
+            html += '<div style="font-size:10px;color:#ff4d4f;margin-top:2px;" title="' + escapeAttr(s.error) + '">失败</div>';
+          }
+          html += '</div>';
+          if (i < steps.length - 1) {
+            html += '<div style="display:flex;align-items:center;color:#ccc;">→</div>';
+          }
+        });
+        html += '</div>';
+        html += '<div style="margin-top:8px;font-size:12px;color:#999;">进度: ' + state.completedSteps() + '/' + state.totalSteps();
+        if (state.currentRole) { html += ' | 当前: ' + escapeHtml(state.currentRole); }
+        html += '</div>';
+        $('#orchestrateSteps').html(html);
+        $('#orchestrateProgress').removeClass('d-none');
+      }
+
+      function showOrchestrateTip(msg, type) {
+        var cls = type === 'success' ? 'alert-success' : type === 'danger' ? 'alert-danger' : type === 'info' ? 'alert-info' : 'alert-warning';
+        $('#orchestrateTip').removeClass('alert-success alert-danger alert-info alert-warning d-none').addClass(cls).text(msg);
+        if (type !== 'info') setTimeout(function () { $('#orchestrateTip').addClass('d-none'); }, 8000);
+      }
+
+      function escapeAttr(s) {
+        if (s == null) return '';
+        return String(s).replace(/"/g, '&quot;');
+      }
+
+      // ---- 发起派生（手动单角色）----
       function bindDerive(id) {
         $('#deriveForm').on('submit', function (e) {
           e.preventDefault();
