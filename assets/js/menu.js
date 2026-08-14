@@ -22,17 +22,21 @@
     ],
     tenant_admin: [
       { key: 'case-manage', title: 'Case 管理', page: 'pages/case-list.html' },
+      { key: 'artifact-view', title: '产物查看', page: 'pages/artifact-view.html' },
       { key: 'user', title: '用户管理', page: 'pages/user-list.html' },
       { key: 'audit-log', title: '审计日志', page: 'pages/audit-log.html' }
     ],
     project_manager: [
-      { key: 'case-manage', title: 'Case 管理', page: 'pages/case-list.html' }
+      { key: 'case-manage', title: 'Case 管理', page: 'pages/case-list.html' },
+      { key: 'artifact-view', title: '产物查看', page: 'pages/artifact-view.html' }
     ],
     engineer: [
-      { key: 'case-manage', title: 'Case 管理', page: 'pages/case-list.html' }
+      { key: 'case-manage', title: 'Case 管理', page: 'pages/case-list.html' },
+      { key: 'artifact-view', title: '产物查看', page: 'pages/artifact-view.html' }
     ],
     executive: [
-      { key: 'case-manage', title: 'Case 管理', page: 'pages/case-list.html' }
+      { key: 'case-manage', title: 'Case 管理', page: 'pages/case-list.html' },
+      { key: 'artifact-view', title: '产物查看', page: 'pages/artifact-view.html' }
     ]
   };
   // 平台识别的角色码白名单（ea/pgm/orchestrator 不在内 → 不映射）
