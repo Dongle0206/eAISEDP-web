@@ -25,6 +25,8 @@
     ],
     tenant_admin: [
       { key: 'user', title: '用户管理', page: 'pages/user-list.html' },
+      { key: 'llm-key', title: 'LLM Key 配置', page: 'pages/llm-key.html' },
+      { key: 'report', title: '统计报表', page: 'pages/report.html' },
       { key: 'role', title: '角色管理', page: 'pages/role-list.html' },
       { key: 'model-routing', title: '模型路由', page: 'pages/model-routing.html' },
       { key: 'quota', title: '配额管理', page: 'pages/quota.html' },

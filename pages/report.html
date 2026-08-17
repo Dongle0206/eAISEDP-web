@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>统计报表 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>body{background:#f0f2f5;}.page-wrap{padding:20px;}.section{background:#fff;border-radius:6px;padding:16px 20px;margin-bottom:16px;}.bar{background:#1677ff;height:22px;border-radius:3px;color:#fff;font-size:11px;display:flex;align-items:center;padding:0 6px;min-width:2px;}</style>
+</head>
+<body>
+  <div class="page-wrap">
+    <div class="section"><h5 class="mb-0">📊 使用统计报表</h5><p class="text-muted small mb-0">派生消耗与产出按月/按角色统计（当前租户）。</p></div>
+    <div class="section"><h6>按月统计</h6><div id="monthlyTable" class="table-responsive"><div class="text-center text-muted py-3">加载中...</div></div></div>
+    <div class="section"><h6>按角色统计</h6><div id="roleTable" class="table-responsive"><div class="text-center text-muted py-3">加载中...</div></div></div>
+  </div>
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function(){const API=window.EAISELP_API,CFG=window.EAISELP_CONFIG;if(!API.getToken()){location.href='../'+CFG.LOGIN_PAGE;return;}
+    var ROLE_TEXT={'team-po':'产品经理','team-ux':'体验设计','team-ba':'业务分析','team-se':'系统工程','team-dba':'数据库','team-dev':'开发','team-reviewer':'代码审查','team-security':'安全','team-qa':'测试','team-performance':'性能','team-ops':'运维','team-sre':'可靠性','team-pm':'项目经理'};
+    API.bizGet('/api/v1/report/monthly').done(function(r){if(r.code!==0){$('#monthlyTable').html('<div class="text-danger">'+esc(r.msg)+'</div>');return;}
+    var l=r.data||[];if(!l.length){$('#monthlyTable').html('<div class="text-center text-muted py-3">暂无数据</div>');return;}
+    var maxCnt=Math.max.apply(null,l.map(function(m){return m.derivationCount||0;}));
+    var html='<table class="table table-sm table-bordered"><thead><tr><th>月份</th><th style="width:30%;">派生次数</th><th>Token 消耗</th><th>成功率</th></tr></thead><tbody>';
+    l.forEach(function(m){var c=m.derivationCount||0;var pct=maxCnt>0?Math.round(c/maxCnt*100):0;
+    html+='<tr><td>'+esc(m.month)+'</td><td><div class="d-flex align-items-center gap-2"><span>'+c+'</span><div class="bar" style="width:'+pct+'%;">'+(pct>15?c:'')+'</div></div></td><td>'+fmt(m.tokenTotal)+'</td><td>'+Math.round((m.successCount||0)/Math.max(1,c)*100)+'%</td></tr>';});
+    html+='</tbody></table>';$('#monthlyTable').html(html);});
+    API.bizGet('/api/v1/report/by-role').done(function(r){if(r.code!==0){$('#roleTable').html('<div class="text-danger">'+esc(r.msg)+'</div>');return;}
+    var l=r.data||[];if(!l.length){$('#roleTable').html('<div class="text-center text-muted py-3">暂无数据</div>');return;}
+    var html='<table class="table table-sm table-bordered"><thead><tr><th>角色</th><th>派生次数</th><th>Token 消耗</th><th>平均耗时</th></tr></thead><tbody>';
+    l.forEach(function(m){html+='<tr><td>'+(ROLE_TEXT[m.role]||esc(m.role||'-'))+'</td><td>'+(m.count||0)+'</td><td>'+fmt(m.tokenTotal)+'</td><td>'+Math.round(m.avgDurationMs||0)+'ms</td></tr>';});
+    html+='</tbody></table>';$('#roleTable').html(html);});
+    function fmt(n){n=Number(n)||0;if(n>1000000)return (n/1000000).toFixed(1)+'M';if(n>1000)return (n/1000).toFixed(1)+'K';return n;}
+    function esc(s){if(s==null)return'';return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+    });
+  </script>
+</body>
+</html>

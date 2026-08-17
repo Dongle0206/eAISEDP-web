@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM Key 配置 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>body{background:#f0f2f5;}.page-wrap{padding:20px;max-width:640px;margin:0 auto;}.section{background:#fff;border-radius:6px;padding:16px 20px;margin-bottom:16px;}</style>
+</head>
+<body>
+  <div class="page-wrap">
+    <div class="section">
+      <h5 class="mb-0">🔑 租户 LLM Key 配置</h5>
+      <p class="text-muted small mb-0">配置后您的租户派生消耗走自己的 LLM 额度（平台不垫付 token 费用）。不配置则使用平台公共 Key（受平台配额限制）。</p>
+    </div>
+    <div class="section">
+      <div class="mb-2 d-flex justify-content-between align-items-center">
+        <span class="small text-muted">当前状态：</span>
+        <span id="keyStatus" class="small">加载中...</span>
+      </div>
+      <div class="mb-3"><label class="form-label small">LLM 厂商</label>
+        <select id="provider" class="form-select form-select-sm"><option value="glm">智谱 GLM</option><option value="deepseek">DeepSeek</option></select></div>
+      <div class="mb-3"><label class="form-label small">API Key</label>
+        <input type="password" id="apiKey" class="form-control" placeholder="粘贴你的 API Key（如智谱开放平台获取）"></div>
+      <button id="saveBtn" class="btn btn-primary btn-sm">保存配置</button>
+      <div id="saveTip" class="alert d-none mt-2 py-2"></div>
+    </div>
+    <div class="section">
+      <h6>Key 获取方式</h6>
+      <ul class="small text-muted mb-0">
+        <li>智谱 GLM：<a href="https://open.bigmodel.cn" target="_blank">open.bigmodel.cn</a> → API Keys</li>
+        <li>DeepSeek：<a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a> → API Keys</li>
+      </ul>
+    </div>
+  </div>
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function(){const API=window.EAISELP_API,CFG=window.EAISELP_CONFIG;if(!API.getToken()){location.href='../'+CFG.LOGIN_PAGE;return;}
+    API.bizGet('/api/v1/tenant/llm-key').done(function(r){if(r.code===0){var d=r.data;
+    $('#provider').val(d.provider||'glm');
+    $('#keyStatus').html(d.configured?'<span class="text-success">✅ 已配置 ('+esc(d.maskedKey)+')</span>':'<span class="text-warning">⚠ 未配置（使用平台公共 Key）</span>');}});
+    $('#saveBtn').on('click',function(){var provider=$('#provider').val(),apiKey=$('#apiKey').val().trim();
+    if(!apiKey){tip('请输入 API Key','danger');return;}
+    var $b=$(this).prop('disabled',true).text('保存中...');
+    API.bizPut('/api/v1/tenant/llm-key',JSON.stringify({provider:provider,apiKey:apiKey})).done(function(r){
+    if(r.code===0){tip('✅ 保存成功','success');setTimeout(function(){location.reload();},800);}
+    else{tip(r.msg||'保存失败','danger');$b.prop('disabled',false).text('保存配置');}})
+    .fail(function(){$b.prop('disabled',false).text('保存配置');tip('请求失败','danger');});});
+    function tip(m,t){$('#saveTip').removeClass('alert-success alert-danger d-none').addClass(t==='success'?'alert-success':'alert-danger').text(m);}
+    function esc(s){if(s==null)return'';return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}});
+  </script>
+</body>
+</html>

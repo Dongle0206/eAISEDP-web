@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>注册企业 - eAISEDP</title>
+  <link rel="stylesheet" href="assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="assets/css/app.css">
+  <style>body{background:linear-gradient(135deg,#f5f7fa 0%,#e4effc 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;}
+  .reg-card{width:420px;background:#fff;border-radius:10px;padding:36px;box-shadow:0 4px 24px rgba(0,0,0,.08);}
+  .brand{font-size:26px;font-weight:700;color:#1677ff;text-align:center;margin-bottom:4px;}
+  .sub{text-align:center;color:#999;font-size:13px;margin-bottom:24px;}</style>
+</head>
+<body>
+  <div class="reg-card">
+    <div class="brand">eAISEDP</div>
+    <div class="sub">企业级 AI 软件工程平台 · 注册开通（30 天试用）</div>
+    <form id="regForm">
+      <div class="mb-3"><label class="form-label">企业名称 <span class="text-danger">*</span></label>
+        <input type="text" id="tenantName" class="form-control" maxlength="64" placeholder="如：某某科技有限公司" required></div>
+      <div class="mb-3"><label class="form-label">管理员账号 <span class="text-danger">*</span></label>
+        <input type="text" id="adminUsername" class="form-control" maxlength="32" placeholder="登录账号（全局唯一）" required></div>
+      <div class="mb-3"><label class="form-label">密码 <span class="text-danger">*</span></label>
+        <input type="password" id="password" class="form-control" minlength="6" placeholder="至少 6 位" required></div>
+      <button type="submit" id="regBtn" class="btn btn-primary w-100">立即注册</button>
+    </form>
+    <div id="regTip" class="alert d-none mt-3 py-2"></div>
+    <div class="text-center mt-3"><a href="login.html" style="font-size:13px;color:#1677ff;">已有账号？去登录 →</a></div>
+  </div>
+  <script src="assets/js/jquery-3.7.1.min.js"></script>
+  <script src="config.js"></script>
+  <script src="assets/js/api.js"></script>
+  <script>
+    $(function(){const API=window.EAISELP_API,CFG=window.EAISELP_CONFIG;
+    $('#regForm').on('submit',function(e){e.preventDefault();
+    var tenantName=$('#tenantName').val().trim(),adminUsername=$('#adminUsername').val().trim(),password=$('#password').val();
+    if(!tenantName||!adminUsername||password.length<6){tip('请完整填写（密码至少6位）','danger');return;}
+    var $b=$('#regBtn').prop('disabled',true).text('注册中...');
+    API.request({url:CFG.API_BASE_URL+'/api/v1/tenant/register',method:'POST',data:JSON.stringify({tenantName:tenantName,adminUsername:adminUsername,password:password}),noAuth:true})
+    .done(function(r){if(r.code===0){tip('🎉 注册成功！账号: '+adminUsername+'，即将跳转登录...','success');setTimeout(function(){location.href='login.html';},1500);}
+    else{tip(r.msg||'注册失败','danger');$b.prop('disabled',false).text('立即注册');}})
+    .fail(function(xhr){tip((xhr.responseJSON&&xhr.responseJSON.msg)||('请求失败('+xhr.status+')'),'danger');$b.prop('disabled',false).text('立即注册');});});
+    function tip(msg,type){$('#regTip').removeClass('alert-success alert-danger d-none').addClass(type==='success'?'alert-success':'alert-danger').text(msg);}});
+  </script>
+</body>
+</html>
