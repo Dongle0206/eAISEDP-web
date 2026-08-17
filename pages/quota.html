@@ -13,23 +13,45 @@
     <div class="section"><h5 class="mb-0">配额管理</h5><p class="text-muted small mb-0">租户月度派生次数与 token 消耗配额。超限自动拒绝派生（429）。</p></div>
     <div class="section"><div id="quotaList"><div class="text-center text-muted py-4">加载中...</div></div></div>
   </div>
+
+  <div class="modal fade" id="editQuotaModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">调整配额</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="qId">
+        <p class="small text-muted" id="qInfo"></p>
+        <div class="mb-2"><label class="form-label small">派生次数上限</label><input id="qDerivation" type="number" class="form-control"></div>
+        <div class="mb-2"><label class="form-label small">Token 消耗上限</label><input id="qToken" type="number" class="form-control"></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="qSave" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
   <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
   <script src="../config.js"></script>
   <script src="../assets/js/api.js"></script>
   <script>
     $(function(){const API=window.EAISELP_API,CFG=window.EAISELP_CONFIG;if(!API.getToken()){location.href='../'+CFG.LOGIN_PAGE;return;}
-    API.bizGet('/api/v1/quotas').done(function(r){if(r.code!==0){$('#quotaList').html('<div class="text-danger">加载失败</div>');return;}
+    function load(){API.bizGet('/api/v1/quotas').done(function(r){if(r.code!==0){$('#quotaList').html('<div class="text-danger">'+esc(r.msg)+'</div>');return;}
     var l=r.data||[];if(!Array.isArray(l)){l=l.records||l.list||[];}
     if(!l.length){$('#quotaList').html('<div class="text-center text-muted py-4">暂无配额记录</div>');return;}
     $('#quotaList').html(l.map(function(q){var dPct=q.derivationLimit>0?Math.min(100,Math.round((q.derivationUsed||0)/q.derivationLimit*100)):0;
     var tPct=q.tokenLimit>0?Math.min(100,Math.round((q.tokenUsed||0)/q.tokenLimit*100)):0;
     var dColor=dPct>80?'bg-danger':dPct>50?'bg-warning':'bg-success';
     var tColor=tPct>80?'bg-danger':tPct>50?'bg-warning':'bg-success';
-    return '<div class="mb-3"><h6>租户 #'+esc(q.tenantId)+' | '+esc(q.period||'')+'</h6>'+
-    '<div class="row"><div class="col-md-6"><label class="small">派生次数: '+(q.derivationUsed||0)+' / '+(q.derivationLimit||'∞')+'</label><div class="progress"><div class="progress-bar '+dColor+'" style="width:'+dPct+'%">'+dPct+'%</div></div></div>'+
-    '<div class="col-md-6"><label class="small">Token 消耗: '+(q.tokenUsed||0)+' / '+(q.tokenLimit||'∞')+'</label><div class="progress"><div class="progress-bar '+tColor+'" style="width:'+tPct+'%">'+tPct+'%</div></div></div></div></div>';}).join(''));}).fail(function(){$('#quotaList').html('<div class="text-danger py-4">请求失败</div>');});
+    return '<div class="mb-3"><div class="d-flex justify-content-between align-items-center"><h6>租户 #'+esc(q.tenantId)+' | '+esc(q.period||'')+'</h6>'
+    +'<button class="btn btn-outline-primary btn-sm q-edit" data-q=\''+esc(JSON.stringify(q))+'\'>调整</button></div>'
+    +'<div class="row"><div class="col-md-6"><label class="small">派生次数: '+(q.derivationUsed||0)+' / '+(q.derivationLimit||'∞')+'</label><div class="progress"><div class="progress-bar '+dColor+'" style="width:'+dPct+'%">'+dPct+'%</div></div></div>'
+    +'<div class="col-md-6"><label class="small">Token 消耗: '+(q.tokenUsed||0)+' / '+(q.tokenLimit||'∞')+'</label><div class="progress"><div class="progress-bar '+tColor+'" style="width:'+tPct+'%">'+tPct+'%</div></div></div></div></div>';}).join(''));});}
+    $('#quotaList').on('click','.q-edit',function(){var q=JSON.parse($(this).data('q'));
+    $('#qId').val(q.id);$('#qInfo').text('租户 #'+q.tenantId+' | '+q.period);$('#qDerivation').val(q.derivationLimit);$('#qToken').val(q.tokenLimit);
+    new bootstrap.Modal('#editQuotaModal').show();});
+    $('#qSave').on('click',function(){var id=$('#qId').val();
+    var body={derivationLimit:parseInt($('#qDerivation').val())||null,tokenLimit:parseInt($('#qToken').val())||null};
+    API.bizPut('/api/v1/quotas/'+id,JSON.stringify(body)).done(function(r){if(r.code===0){bootstrap.Modal.getInstance(document.getElementById('editQuotaModal')).hide();load();}else{alert(r.msg||'保存失败');}});});
     function esc(s){if(s==null)return'';return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
-    });
+    load();});
   </script>
 </body>
 </html>

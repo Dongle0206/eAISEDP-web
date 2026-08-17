@@ -11,29 +11,69 @@
 <body>
   <div class="page-wrap">
     <div class="section">
-      <h5 class="mb-0">模型路由配置</h5>
-      <p class="text-muted small mb-0">角色能力档位(tier) → 具体模型映射。换模型只改这里，不改代码（P8 解耦层）。</p>
+      <div class="d-flex align-items-center">
+        <h5 class="mb-0">模型路由配置</h5>
+        <button id="addBtn" class="btn btn-primary btn-sm ms-3">+ 新增路由</button>
+      </div>
+      <p class="text-muted small mb-0">角色能力档位(tier) → 具体模型映射。在线切换模型，不改代码（P8 解耦层）。</p>
     </div>
     <div class="section">
       <div id="routingList"><div class="text-center text-muted py-4">加载中...</div></div>
     </div>
   </div>
+
+  <!-- 编辑弹窗 -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">编辑路由</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="mb-2"><label class="form-label small">Tier（能力档位）</label><input id="fTier" class="form-control form-control-sm" placeholder="reasoning/structured/mechanical/opus/sonnet/haiku"></div>
+        <div class="mb-2"><label class="form-label small">厂商 Provider</label><input id="fProvider" class="form-control form-control-sm" placeholder="glm/deepseek/qwen"></div>
+        <div class="mb-2"><label class="form-label small">模型名 *</label><input id="fModel" class="form-control form-control-sm" placeholder="glm-4-plus / deepseek-r1"></div>
+        <div class="row">
+          <div class="col-6 mb-2"><label class="form-label small">优先级（小者优先）</label><input id="fPriority" type="number" class="form-control form-control-sm" value="10"></div>
+          <div class="col-6 mb-2"><label class="form-label small">启用</label><select id="fEnabled" class="form-select form-select-sm"><option value="1">启用</option><option value="0">停用</option></select></div>
+        </div>
+        <div class="mb-2"><label class="form-label small">API Key 环境变量</label><input id="fApiKeyEnv" class="form-control form-control-sm" placeholder="GLM_API_KEY"></div>
+        <div class="mb-2"><label class="form-label small">Base URL</label><input id="fBaseUrl" class="form-control form-control-sm" placeholder="https://open.bigmodel.cn/api/paas/v4"></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
   <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
   <script src="../config.js"></script>
   <script src="../assets/js/api.js"></script>
   <script>
     $(function(){const API=window.EAISELP_API,CFG=window.EAISELP_CONFIG;if(!API.getToken()){location.href='../'+CFG.LOGIN_PAGE;return;}
-    API.bizGet('/api/v1/model-routing').done(function(r){if(r.code!==0){$('#routingList').html('<div class="text-danger">加载失败: '+esc(r.msg)+'</div>');return;}
-    var l=r.data||[];if(!l.length){$('#routingList').html('<div class="text-center text-muted py-4">暂无模型路由配置</div>');return;}
+    function load(){API.bizGet('/api/v1/model-routing').done(function(r){if(r.code!==0){$('#routingList').html('<div class="text-danger">'+esc(r.msg)+'</div>');return;}
+    var l=r.data||[];if(!l.length){$('#routingList').html('<div class="text-center text-muted py-4">暂无配置</div>');return;}
     var tierOrder={};l.forEach(function(m){if(!tierOrder[m.tier])tierOrder[m.tier]=[];tierOrder[m.tier].push(m);});
     var html='';Object.keys(tierOrder).sort().forEach(function(tier){
     html+='<div class="mb-3"><span class="tier-badge">'+esc(tier)+'</span></div>';
-    html+='<table class="table table-sm table-bordered"><thead><tr><th>厂商</th><th>模型</th><th>优先级</th><th>状态</th><th>API Key 环境变量</th><th>Base URL</th></tr></thead><tbody>';
-    tierOrder[tier].forEach(function(m){html+='<tr><td>'+esc(m.provider)+'</td><td><strong>'+esc(m.model)+'</strong></td><td>'+esc(m.priority)+'</td><td>'+(m.enabled?'<span class="badge bg-success">启用</span>':'<span class="badge bg-secondary">停用</span>')+'</td><td><code>'+esc(m.apiKeyEnv||'-')+'</code></td><td style="font-size:12px;">'+esc(m.baseUrl||'-')+'</td></tr>';});
+    html+='<table class="table table-sm table-bordered"><thead><tr><th>厂商</th><th>模型</th><th>优先级</th><th>状态</th><th>API Key Env</th><th>操作</th></tr></thead><tbody>';
+    tierOrder[tier].forEach(function(m){html+='<tr><td>'+esc(m.provider)+'</td><td><strong>'+esc(m.model)+'</strong></td><td>'+esc(m.priority)+'</td><td>'+(m.enabled?'<span class="badge bg-success">启用</span>':'<span class="badge bg-secondary">停用</span>')+'</td><td><code>'+esc(m.apiKeyEnv||'-')+'</code></td>'
+    +'<td><button class="btn btn-outline-primary btn-sm mr-edit" data-m=\''+esc(JSON.stringify(m))+'\'>编辑</button> '
+    +(m.enabled?'<button class="btn btn-outline-warning btn-sm mr-toggle" data-id="'+m.id+'" data-en="0">停用</button>':'<button class="btn btn-outline-success btn-sm mr-toggle" data-id="'+m.id+'" data-en="1">启用</button>')
+    +'</td></tr>';});
     html+='</tbody></table>';});
-    $('#routingList').html(html);}).fail(function(){$('#routingList').html('<div class="text-danger py-4">请求失败</div>');});
+    $('#routingList').html(html);});}
+    $('#addBtn').on('click',function(){$('#fId').val('');$('#fTier').val('');$('#fProvider').val('');$('#fModel').val('');$('#fPriority').val(10);$('#fEnabled').val('1');$('#fApiKeyEnv').val('');$('#fBaseUrl').val('');$('#modalTitle').text('新增路由');new bootstrap.Modal('#editModal').show();});
+    $('#routingList').on('click','.mr-edit',function(){var m=JSON.parse($(this).data('m'));
+    $('#fId').val(m.id);$('#fTier').val(m.tier);$('#fProvider').val(m.provider);$('#fModel').val(m.model);$('#fPriority').val(m.priority);$('#fEnabled').val(String(m.enabled));$('#fApiKeyEnv').val(m.apiKeyEnv||'');$('#fBaseUrl').val(m.baseUrl||'');
+    $('#modalTitle').text('编辑路由 #'+m.id);new bootstrap.Modal('#editModal').show();});
+    $('#routingList').on('click','.mr-toggle',function(){var id=$(this).data('id'),en=parseInt($(this).data('en'));
+    API.bizPut('/api/v1/model-routing/'+id,JSON.stringify({enabled:en})).done(function(r){if(r.code===0){load();}else{alert(r.msg||'操作失败');}});});
+    $('#saveBtn').on('click',function(){var id=$('#fId').val();
+    var body={tier:$('#fTier').val().trim(),provider:$('#fProvider').val().trim(),model:$('#fModel').val().trim(),priority:parseInt($('#fPriority').val())||10,enabled:parseInt($('#fEnabled').val()),apiKeyEnv:$('#fApiKeyEnv').val().trim()||null,baseUrl:$('#fBaseUrl').val().trim()||null};
+    if(!body.model){alert('模型名不能为空');return;}
+    if(id){API.bizPut('/api/v1/model-routing/'+id,JSON.stringify(body)).done(function(r){if(r.code===0){bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();load();}else{alert(r.msg||'保存失败');}});}
+    else{if(!body.tier||!body.provider){alert('新增时 tier/provider 必填');return;}
+    API.bizPost('/api/v1/model-routing',JSON.stringify(body)).done(function(r){if(r.code===0){bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();load();}else{alert(r.msg||'保存失败');}});}});
     function esc(s){if(s==null)return'';return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
-    });
+    load();});
   </script>
 </body>
 </html>

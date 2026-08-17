@@ -77,6 +77,7 @@
           <div><span class="label">创建人：</span><span id="caseCreator"></span></div>
         </div>
         <div class="mt-2"><span class="label">描述：</span><span id="caseDesc" style="white-space:pre-wrap;"></span></div>
+        <div class="mt-2 d-flex gap-2 align-items-center" id="transitArea"></div>
         <button class="btn btn-sm btn-outline-secondary mt-2" id="backListBtn">← 返回列表</button>
       </div>
 
@@ -114,7 +115,7 @@
               </select>
             </div>
             <div class="col-md-8 d-flex align-items-end">
-              <small class="text-muted">选择角色后，由对应专家子代理派生执行任务。</small>
+              <small class="text-muted">选择角色后，由对应专家子代理派生执行任务。（<span id="roleCount">加载中</span> 个角色可用）</small>
             </div>
           </div>
           <div class="mb-2">
@@ -167,6 +168,7 @@
         $('#detailView').removeClass('d-none');
         loadDetail(caseId);
         loadTimeline(caseId);
+        loadRoleOptions();
         bindOrchestrate(caseId);
         bindDerive(caseId);
       }
@@ -225,6 +227,7 @@
           $('#caseDesc').text(c.requirement || c.description || c.desc || '-');
           const st = c.status || 'unknown';
           $('#caseStatus').html('<span class="status-badge ' + (STATUS_CLASS[st] || 'status-unknown') + '">' + (STATUS_TEXT[st] || st) + '</span>');
+          renderTransitButtons(st, c.caseId);
         }).fail(function (xhr) {
           $('#caseTitleH').text('加载失败（' + xhr.status + '）');
         });
@@ -267,6 +270,73 @@
           + (d.task ? '<div style="font-size:13px;color:#555;">任务：' + escapeHtml(d.task) + '</div>' : '')
           + (summary ? '<div class="tl-output">' + renderMarkdown(summary) + '</div>' : '')
           + '</div>';
+      }
+
+      // ---- Case 状态流转（#8：与后端 CaseStatus 状态机一致的流转按钮）----
+      const TRANSITIONS = {
+        drafting:  [{ to: 'deriving', label: '→ 开始派生' }],
+        deriving:  [{ to: 'reviewing', label: '→ 提交评审' }],
+        reviewing: [{ to: 'testing', label: '→ 进入测试' }, { to: 'deriving', label: '↩ 返工派生' }],
+        testing:   [{ to: 'deploying', label: '→ 进入部署' }, { to: 'deriving', label: '↩ 返工派生' }],
+        deploying: [{ to: 'done', label: '→ 完成归档' }, { to: 'deriving', label: '↩ 返工派生' }],
+        done:      []
+      };
+      function renderTransitButtons(status, caseId) {
+        var $area = $('#transitArea').empty();
+        var nexts = TRANSITIONS[status] || [];
+        if (!nexts.length) {
+          if (status === 'done') $area.append('<span class="text-muted small">✓ 已完结（终态）</span>');
+          return;
+        }
+        $area.append('<span class="text-muted small me-1">流转：</span>');
+        nexts.forEach(function (t) {
+          var cls = t.to === 'deriving' && status !== 'drafting' ? 'btn-outline-warning' : 'btn-outline-primary';
+          $area.append('<button class="btn btn-sm ' + cls + ' transit-btn" data-to="' + t.to + '" data-case="' + escapeAttr(caseId) + '">' + t.label + '</button>');
+        });
+      }
+      $('#transitArea').on('click', '.transit-btn', function () {
+        var to = $(this).data('to');
+        var caseId = $(this).data('case');
+        if (!confirm('确认流转到「' + (STATUS_TEXT[to] || to) + '」？')) return;
+        API.bizPost('/api/v1/cases/' + encodeURIComponent(caseId) + '/transit',
+            JSON.stringify({ targetStatus: to }))
+          .done(function (resp) {
+            if (resp.code === 0) {
+              loadDetail(caseId);
+              loadTimeline(caseId);
+            } else {
+              alert(resp.msg || '流转失败');
+            }
+          });
+      });
+
+      // ---- 动态角色下拉（#10：从 /api/capability/agents 拉取，新增角色前端自动感知）----
+      function loadRoleOptions() {
+        $.ajax({
+          url: CFG.API_BASE_URL + '/api/capability/agents',
+          method: 'GET',
+          headers: { 'Authorization': 'Bearer ' + API.getToken() },
+          dataType: 'json'
+        }).done(function (resp) {
+          if (resp.code !== 0 || !resp.data) return;
+          const ROLE_TEXT = {
+            'team-po': '产品负责人（PO）', 'team-ux': '体验设计（UX）', 'team-ba': '业务分析（BA）',
+            'team-se': '系统工程（SE）', 'team-dba': '数据库工程（DBA）', 'team-dev': '开发（Dev）',
+            'team-reviewer': '审查（Reviewer）', 'team-security': '安全审查', 'team-qa': '测试（QA）',
+            'team-performance': '性能（Performance）', 'team-ops': '运维（Ops）', 'team-sre': '可靠性（SRE）',
+            'team-pm': '项目经理（PM）', 'team-orchestrator': '编排者'
+          };
+          // 编排者角色不参与手动派生（它只做规划）
+          const agents = (resp.data || []).filter(a => a.name !== 'team-orchestrator');
+          const $sel = $('#roleSelect').empty();
+          agents.forEach(function (a) {
+            const label = ROLE_TEXT[a.name] || (a.description ? a.description.substring(0, 20) : a.name);
+            $sel.append('<option value="' + escapeAttr(a.name) + '">' + escapeHtml(label) + '</option>');
+          });
+          $('#roleCount').text(agents.length);
+        }).fail(function () {
+          $('#roleCount').text('7（默认）');
+        });
       }
 
       // ---- 一键编排 ----
