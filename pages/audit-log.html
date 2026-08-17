@@ -48,6 +48,7 @@
           <option value="user">用户操作</option>
         </select>
       </label>
+      <input id="userFilter" type="number" class="form-control form-control-sm" style="width:120px;" placeholder="用户ID筛选">
       <button id="refreshBtn" class="btn btn-primary btn-sm">查询</button>
     </div>
 
@@ -111,8 +112,23 @@
         role_grant: '授权角色', role_revoke: '撤销角色'
       };
 
-      // GET /api/v1/audit-logs?page=&size=&action=
+      // GET /api/v1/audit-logs?page=&size=&action= 或按用户 /users/{userId}
       function loadList() {
+        const userId = $('#userFilter').val().trim();
+        if (userId) {
+          // 按用户查询（#14：用户操作时间线）
+          $('#logTbody').html('<tr class="empty-row"><td colspan="8">加载中...</td></tr>');
+          API.bizGet('/api/v1/audit-logs/users/' + encodeURIComponent(userId) + '?limit=' + state.size).done(function (resp) {
+            if (resp.code !== 0) { renderError(resp.msg || '加载失败'); return; }
+            const list = resp.data || [];
+            state.total = list.length;
+            renderTable(list);
+            $('#pageInfo').text('用户 ' + userId + ' 最近 ' + list.length + ' 条');
+            $('#pageNumbers').html('');
+            $('#prevBtn,#nextBtn').prop('disabled', true);
+          }).fail(function (xhr) { renderError('请求失败(' + xhr.status + ')'); });
+          return;
+        }
         const params = new URLSearchParams();
         params.set('page', state.page);
         params.set('size', state.size);

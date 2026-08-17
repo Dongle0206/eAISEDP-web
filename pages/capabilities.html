@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>能力注册表 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body{background:#f0f2f5;}.page-wrap{padding:20px;}.section{background:#fff;border-radius:6px;padding:16px 20px;margin-bottom:16px;}
+    .agent-card{border:1px solid #e8e8e8;border-radius:6px;padding:12px;margin-bottom:8px;cursor:pointer;transition:all .15s;}
+    .agent-card:hover{border-color:#1677ff;box-shadow:0 2px 8px rgba(22,119,255,.15);}
+    .agent-name{font-weight:600;color:#1677ff;font-size:14px;}
+    .agent-desc{font-size:12px;color:#666;margin-top:4px;}
+    .model-badge{background:#e6fffb;color:#08979c;padding:1px 6px;border-radius:8px;font-size:11px;margin-left:6px;}
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <div class="section">
+      <ul class="nav nav-pills mb-2">
+        <li class="nav-item"><a class="nav-link active" data-tab="agents" href="#">角色定义 (<span id="agentCount">0</span>)</a></li>
+        <li class="nav-item"><a class="nav-link" data-tab="skills" href="#">技能 (<span id="skillCount">0</span>)</a></li>
+        <li class="nav-item"><a class="nav-link" data-tab="commands" href="#">命令 (<span id="cmdCount">0</span>)</a></li>
+      </ul>
+      <p class="text-muted small mb-0">体系能力注册表——角色/技能/命令全部 markdown 驱动，热加载 30s。点击查看完整定义。</p>
+    </div>
+    <div class="section" id="contentArea"><div class="text-center text-muted py-4">加载中...</div></div>
+    <div class="section d-none" id="detailArea">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 id="detailTitle" style="margin:0;color:#1677ff;"></h6>
+        <button id="backBtn" class="btn btn-sm btn-outline-secondary">← 返回列表</button>
+      </div>
+      <div id="detailBody" style="background:#fafafa;border-radius:6px;padding:16px;font-size:13px;line-height:1.8;white-space:pre-wrap;max-height:500px;overflow:auto;"></div>
+    </div>
+  </div>
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function(){const API=window.EAISELP_API,CFG=window.EAISELP_CONFIG;if(!API.getToken()){location.href='../'+CFG.LOGIN_PAGE;return;}
+    var cache={agents:[],skills:[],commands:[]},currentTab='agents';
+    function loadAll(){$.when(
+    $.ajax({url:CFG.API_BASE_URL+'/api/capability/agents',method:'GET',headers:{'Authorization':'Bearer '+API.getToken()},dataType:'json'}),
+    $.ajax({url:CFG.API_BASE_URL+'/api/capability/skills',method:'GET',headers:{'Authorization':'Bearer '+API.getToken()},dataType:'json'}),
+    $.ajax({url:CFG.API_BASE_URL+'/api/capability/commands',method:'GET',headers:{'Authorization':'Bearer '+API.getToken()},dataType:'json'})
+    ).done(function(a,s,c){
+    cache.agents=(a[0].code===0?a[0].data:[])||[];
+    cache.skills=(s[0].code===0?s[0].data:[])||[];
+    cache.commands=(c[0].code===0?c[0].data:[])||[];
+    $('#agentCount').text(cache.agents.length);$('#skillCount').text(cache.skills.length);$('#cmdCount').text(cache.commands.length);
+    render();});}
+    function render(){$('#detailArea').addClass('d-none');$('#contentArea').removeClass('d-none');
+    var html='';
+    if(currentTab==='agents'){
+    html='<div class="row">'+cache.agents.map(function(a){return '<div class="col-md-4"><div class="agent-card" data-tab="agents" data-name="'+esc(a.name)+'"><div class="agent-name">'+esc(a.name)+(a.model?'<span class="model-badge">'+esc(a.model)+'</span>':'')+'</div><div class="agent-desc">'+esc((a.description||'').substring(0,60))+'</div></div></div>';}).join('')+'</div>';
+    }else if(currentTab==='skills'){
+    html='<div class="row">'+cache.skills.map(function(s){return '<div class="col-md-4"><div class="agent-card" data-tab="skills" data-name="'+esc(s.name)+'"><div class="agent-name">'+esc(s.name)+'</div><div class="agent-desc">'+esc((s.description||'').substring(0,60))+'</div></div></div>';}).join('')+'</div>';
+    }else{
+    html='<div class="row">'+cache.commands.map(function(c){return '<div class="col-md-4"><div class="agent-card" data-tab="commands" data-name="'+esc(c.name)+'"><div class="agent-name">/'+esc(c.name)+'</div><div class="agent-desc">'+esc((c.description||'').substring(0,60))+'</div></div></div>';}).join('')+'</div>';
+    }
+    $('#contentArea').html(html);}
+    $('.nav-link').on('click',function(e){e.preventDefault();$('.nav-link').removeClass('active');$(this).addClass('active');currentTab=$(this).data('tab');render();});
+    $('#contentArea').on('click','.agent-card',function(){var tab=$(this).data('tab'),name=$(this).data('name');
+    var url=CFG.API_BASE_URL+'/api/capability/'+tab+'/'+encodeURIComponent(name);
+    $.ajax({url:url,method:'GET',headers:{'Authorization':'Bearer '+API.getToken()},dataType:'json'}).done(function(r){
+    if(r.code===0&&r.data){$('#contentArea').addClass('d-none');$('#detailArea').removeClass('d-none');
+    $('#detailTitle').text(r.data.name);
+    var body=(r.data.description?'## 描述\n'+r.data.description+'\n\n':'')+(r.data.model?'## 模型档位\n'+r.data.model+'\n\n':'')+(r.data.prompt||'');
+    $('#detailBody').text(body||'（无内容）');}});});
+    $('#backBtn').on('click',render);
+    function esc(s){if(s==null)return'';return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+    loadAll();});
+  </script>
+</body>
+</html>

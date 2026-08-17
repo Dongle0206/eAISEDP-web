@@ -76,6 +76,8 @@
           <div><span class="label">创建时间：</span><span id="caseCreatedAt"></span></div>
           <div><span class="label">创建人：</span><span id="caseCreator"></span></div>
         </div>
+        <!-- #12 全流程可视化：生命周期进度条 -->
+        <div class="mt-2" id="lifecycleBar" style="display:flex;gap:0;align-items:center;overflow-x:auto;padding:4px 0;"></div>
         <div class="mt-2"><span class="label">描述：</span><span id="caseDesc" style="white-space:pre-wrap;"></span></div>
         <div class="mt-2 d-flex gap-2 align-items-center" id="transitArea"></div>
         <button class="btn btn-sm btn-outline-secondary mt-2" id="backListBtn">← 返回列表</button>
@@ -228,6 +230,7 @@
           const st = c.status || 'unknown';
           $('#caseStatus').html('<span class="status-badge ' + (STATUS_CLASS[st] || 'status-unknown') + '">' + (STATUS_TEXT[st] || st) + '</span>');
           renderTransitButtons(st, c.caseId);
+          renderLifecycleBar(st);
         }).fail(function (xhr) {
           $('#caseTitleH').text('加载失败（' + xhr.status + '）');
         });
@@ -270,6 +273,28 @@
           + (d.task ? '<div style="font-size:13px;color:#555;">任务：' + escapeHtml(d.task) + '</div>' : '')
           + (summary ? '<div class="tl-output">' + renderMarkdown(summary) + '</div>' : '')
           + '</div>';
+      }
+
+      // ---- #12 全流程可视化：生命周期进度条（需求→部署链路）----
+      function renderLifecycleBar(status) {
+        var FLOW = ['drafting', 'deriving', 'reviewing', 'testing', 'deploying', 'done'];
+        var ICONS = { drafting: '📝', deriving: '🤖', reviewing: '🔍', testing: '🧪', deploying: '🚀', done: '✅' };
+        var curIdx = FLOW.indexOf(status);
+        if (curIdx < 0) curIdx = 0;
+        var html = '';
+        FLOW.forEach(function (s, i) {
+          var done = i < curIdx, active = i === curIdx;
+          var bg = active ? '#1677ff' : done ? '#52c41a' : '#f0f0f0';
+          var color = active ? '#fff' : done ? '#fff' : '#999';
+          html += '<div style="text-align:center;min-width:72px;">'
+            + '<div style="width:28px;height:28px;border-radius:50%;background:' + bg + ';color:' + color + ';display:flex;align-items:center;justify-content:center;margin:0 auto;font-size:13px;">' + (done ? '✓' : ICONS[s]) + '</div>'
+            + '<div style="font-size:11px;margin-top:2px;color:' + (active ? '#1677ff' : done ? '#52c41a' : '#999') + ';font-weight:' + (active ? '600' : '400') + ';">' + (STATUS_TEXT[s] || s) + '</div>'
+            + '</div>';
+          if (i < FLOW.length - 1) {
+            html += '<div style="flex:1;height:2px;background:' + (i < curIdx ? '#52c41a' : '#e8e8e8') + ';min-width:16px;"></div>';
+          }
+        });
+        $('#lifecycleBar').html(html);
       }
 
       // ---- Case 状态流转（#8：与后端 CaseStatus 状态机一致的流转按钮）----
@@ -563,9 +588,24 @@
       }
       function renderMarkdown(md) {
         try {
-          if (window.marked && typeof window.marked.parse === 'function') return window.marked.parse(String(md));
+          if (window.marked && typeof window.marked.parse === 'function') return sanitizeHtml(window.marked.parse(String(md)));
         } catch (e) { /* 降级纯文本 */ }
         return '<pre style="white-space:pre-wrap;background:transparent;border:none;padding:0;">' + escapeHtml(md) + '</pre>';
+      }
+      // XSS 防护（#31）：LLM 产出渲染前清理 script/on事件/危险协议
+      function sanitizeHtml(html) {
+        var div = document.createElement('div');
+        div.innerHTML = html;
+        div.querySelectorAll('script,iframe,object,embed,link,style').forEach(function (n) { n.remove(); });
+        div.querySelectorAll('*').forEach(function (el) {
+          Array.prototype.slice.call(el.attributes).forEach(function (attr) {
+            var n = attr.name.toLowerCase(), v = String(attr.value).toLowerCase().trim();
+            if (n.startsWith('on') || (n === 'href' && v.startsWith('javascript:')) || (n === 'src' && v.startsWith('javascript:'))) {
+              el.removeAttribute(attr.name);
+            }
+          });
+        });
+        return div.innerHTML;
       }
       function escapeHtml(s) {
         if (s == null) return '';

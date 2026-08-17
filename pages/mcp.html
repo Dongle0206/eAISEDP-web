@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP 工具 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>body{background:#f0f2f5;}.page-wrap{padding:20px;}.section{background:#fff;border-radius:6px;padding:16px 20px;margin-bottom:16px;}pre{background:#1e1e1e;color:#d4d4d4;padding:12px;border-radius:6px;font-size:12px;}</style>
+</head>
+<body>
+  <div class="page-wrap">
+    <div class="section">
+      <h5 class="mb-0">MCP 工具</h5>
+      <p class="text-muted small mb-0">Model Context Protocol——外部工具标准协议对接。未配置 MCP Server 时显示降级提示（需 eaiselp.adapter.mcp.enabled=true）。</p>
+    </div>
+    <div class="section"><div id="toolList"><div class="text-center text-muted py-4"><div class="spinner-border text-primary"></div></div></div></div>
+  </div>
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function(){const API=window.EAISELP_API,CFG=window.EAISELP_CONFIG;if(!API.getToken()){location.href='../'+CFG.LOGIN_PAGE;return;}
+    $.ajax({url:CFG.API_BASE_URL+'/api/v1/mcp/tools',method:'GET',headers:{'Authorization':'Bearer '+API.getToken()},dataType:'json'}).done(function(r){
+    if(r.code!==0){$('#toolList').html('<div class="text-danger py-3">'+esc(r.msg||'加载失败')+'</div>');return;}
+    var d=r.data||{};
+    if(!d.enabled){$('#toolList').html('<div class="text-center py-4"><div style="font-size:40px;">🔌</div><div class="text-muted">MCP 未配置</div><div class="text-muted small mt-2">'+esc(d.message||'')+'</div><div class="text-muted small">启动 runtime 时设置: set MCP_ENABLED=true &amp;&amp; set MCP_SERVER_URL=http://your-mcp:3001/mcp</div></div>');return;}
+    var tools=d.tools||[];
+    if(!tools.length){$('#toolList').html('<div class="text-center text-muted py-4">已连接但无可用工具</div>');return;}
+    var html='<div class="mb-2 small text-muted">Provider: '+esc(d.provider)+' | '+tools.length+' 个工具</div>';
+    tools.forEach(function(t){html+='<div class="border rounded p-3 mb-2"><div class="d-flex justify-content-between"><div><strong>'+esc(t.name)+'</strong></div><button class="btn btn-outline-primary btn-sm mcp-invoke" data-name="'+esc(t.name)+'">调用</button></div><div class="small text-muted mt-1">'+esc(t.description||'')+'</div></div>';});
+    html+='<div id="invokeResult" class="mt-3 d-none"><h6>调用结果</h6><pre id="invokeOutput"></pre></div>';
+    $('#toolList').html(html);}).fail(function(){$('#toolList').html('<div class="text-danger py-3">请求失败</div>');});
+    $('#toolList').on('click','.mcp-invoke',function(){var name=$(this).data('name');
+    var paramsStr=prompt('输入调用参数 JSON（可为空）:','{}');
+    var params={};try{params=paramsStr?JSON.parse(paramsStr):{};}catch(e){alert('JSON 格式错误');return;}
+    API.bizPost('/api/v1/mcp/invoke',JSON.stringify({name:name,params:params})).done(function(r){
+    $('#invokeResult').removeClass('d-none');
+    $('#invokeOutput').text(JSON.stringify(r,null,2));});});
+    function esc(s){if(s==null)return'';return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+    });
+  </script>
+</body>
+</html>

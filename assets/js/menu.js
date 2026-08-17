@@ -9,7 +9,9 @@
     { key: 'workspace', title: '工作区文件', page: 'pages/workspace.html' },
     { key: 'artifact-view', title: '产物查看', page: 'pages/artifact-view.html' },
     { key: 'checkpoint', title: '检查点审批', page: 'pages/checkpoint.html' },
-    { key: 'search', title: '全局搜索', page: 'pages/search.html' }
+    { key: 'search', title: '全局搜索', page: 'pages/search.html' },
+    { key: 'capabilities', title: '能力注册表', page: 'pages/capabilities.html' },
+    { key: 'mcp', title: 'MCP 工具', page: 'pages/mcp.html' }
   ];
 
   const ROLE_MENUS = {

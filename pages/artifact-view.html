@@ -205,9 +205,24 @@
       // 工具函数
       function renderMarkdown(md) {
         try {
-          if (window.marked && typeof window.marked.parse === 'function') return window.marked.parse(String(md));
+          if (window.marked && typeof window.marked.parse === 'function') return sanitizeHtml(window.marked.parse(String(md)));
         } catch (e) {}
         return '<pre style="white-space:pre-wrap;background:transparent;border:none;padding:0;">' + escapeHtml(md) + '</pre>';
+      }
+      // XSS 防护（#31）
+      function sanitizeHtml(html) {
+        var div = document.createElement('div');
+        div.innerHTML = html;
+        div.querySelectorAll('script,iframe,object,embed,link,style').forEach(function (n) { n.remove(); });
+        div.querySelectorAll('*').forEach(function (el) {
+          Array.prototype.slice.call(el.attributes).forEach(function (attr) {
+            var n = attr.name.toLowerCase(), v = String(attr.value).toLowerCase().trim();
+            if (n.startsWith('on') || (n === 'href' && v.startsWith('javascript:')) || (n === 'src' && v.startsWith('javascript:'))) {
+              el.removeAttribute(attr.name);
+            }
+          });
+        });
+        return div.innerHTML;
       }
       function escapeHtml(s) {
         if (s == null) return '';
