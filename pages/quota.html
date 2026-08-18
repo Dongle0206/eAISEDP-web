@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -49,7 +49,7 @@
     new bootstrap.Modal('#editQuotaModal').show();});
     $('#qSave').on('click',function(){var id=$('#qId').val();
     var body={derivationLimit:parseInt($('#qDerivation').val())||null,tokenLimit:parseInt($('#qToken').val())||null};
-    API.bizPut('/api/v1/quotas/'+id,JSON.stringify(body)).done(function(r){if(r.code===0){bootstrap.Modal.getInstance(document.getElementById('editQuotaModal')).hide();load();}else{alert(r.msg||'保存失败');}});});
+    API.bizPut('/api/v1/quotas/'+id,body).done(function(r){if(r.code===0){bootstrap.Modal.getInstance(document.getElementById('editQuotaModal')).hide();load();}else{alert(r.msg||'保存失败');}});});
     function esc(s){if(s==null)return'';return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
     load();});
   </script>

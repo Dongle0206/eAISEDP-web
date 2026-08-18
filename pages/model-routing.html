@@ -65,13 +65,13 @@
     $('#fId').val(m.id);$('#fTier').val(m.tier);$('#fProvider').val(m.provider);$('#fModel').val(m.model);$('#fPriority').val(m.priority);$('#fEnabled').val(String(m.enabled));$('#fApiKeyEnv').val(m.apiKeyEnv||'');$('#fBaseUrl').val(m.baseUrl||'');
     $('#modalTitle').text('编辑路由 #'+m.id);new bootstrap.Modal('#editModal').show();});
     $('#routingList').on('click','.mr-toggle',function(){var id=$(this).data('id'),en=parseInt($(this).data('en'));
-    API.bizPut('/api/v1/model-routing/'+id,JSON.stringify({enabled:en})).done(function(r){if(r.code===0){load();}else{alert(r.msg||'操作失败');}});});
+    API.bizPut('/api/v1/model-routing/'+id,{enabled:en}).done(function(r){if(r.code===0){load();}else{alert(r.msg||'操作失败');}});});
     $('#saveBtn').on('click',function(){var id=$('#fId').val();
     var body={tier:$('#fTier').val().trim(),provider:$('#fProvider').val().trim(),model:$('#fModel').val().trim(),priority:parseInt($('#fPriority').val())||10,enabled:parseInt($('#fEnabled').val()),apiKeyEnv:$('#fApiKeyEnv').val().trim()||null,baseUrl:$('#fBaseUrl').val().trim()||null};
     if(!body.model){alert('模型名不能为空');return;}
-    if(id){API.bizPut('/api/v1/model-routing/'+id,JSON.stringify(body)).done(function(r){if(r.code===0){bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();load();}else{alert(r.msg||'保存失败');}});}
+    if(id){API.bizPut('/api/v1/model-routing/'+id,body).done(function(r){if(r.code===0){bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();load();}else{alert(r.msg||'保存失败');}});}
     else{if(!body.tier||!body.provider){alert('新增时 tier/provider 必填');return;}
-    API.bizPost('/api/v1/model-routing',JSON.stringify(body)).done(function(r){if(r.code===0){bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();load();}else{alert(r.msg||'保存失败');}});}});
+    API.bizPost('/api/v1/model-routing',body).done(function(r){if(r.code===0){bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();load();}else{alert(r.msg||'保存失败');}});}});
     function esc(s){if(s==null)return'';return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
     load();});
   </script>

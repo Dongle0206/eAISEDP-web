@@ -48,8 +48,8 @@
     if(st==='pending'){html+='<div class="mt-2"><button class="btn btn-success btn-sm cp-confirm" data-id="'+cp.id+'">✓ 确认放行</button> <button class="btn btn-danger btn-sm cp-reject" data-id="'+cp.id+'">✗ 拒绝</button></div>';}
     html+='</div>';return html;}).join(''));}).fail(function(){$('#cpList').html('<div class="text-danger py-4">请求失败</div>');});}
     $('#caseFilter').on('change',function(){var v=$(this).val();if(v)loadCheckpoints(v);});
-    $('#cpList').on('click','.cp-confirm',function(){var id=$(this).data('id');var c=prompt('确认备注（可选）:','');API.bizPost('/api/v1/checkpoints/'+id+'/confirm',JSON.stringify({comment:c||''})).done(function(r){if(r.code===0){alert('已确认');var cid=$('#caseFilter').val();if(cid)loadCheckpoints(cid);}else{alert(r.msg||'操作失败');}});});
-    $('#cpList').on('click','.cp-reject',function(){var id=$(this).data('id');var c=prompt('拒绝原因:','');if(!c){alert('请填写拒绝原因');return;}API.bizPost('/api/v1/checkpoints/'+id+'/reject',JSON.stringify({comment:c})).done(function(r){if(r.code===0){alert('已拒绝');var cid=$('#caseFilter').val();if(cid)loadCheckpoints(cid);}else{alert(r.msg||'操作失败');}});});
+    $('#cpList').on('click','.cp-confirm',function(){var id=$(this).data('id');var c=prompt('确认备注（可选）:','');API.bizPost('/api/v1/checkpoints/'+id+'/confirm',{comment:c||''}).done(function(r){if(r.code===0){alert('已确认');var cid=$('#caseFilter').val();if(cid)loadCheckpoints(cid);}else{alert(r.msg||'操作失败');}});});
+    $('#cpList').on('click','.cp-reject',function(){var id=$(this).data('id');var c=prompt('拒绝原因:','');if(!c){alert('请填写拒绝原因');return;}API.bizPost('/api/v1/checkpoints/'+id+'/reject',{comment:c}).done(function(r){if(r.code===0){alert('已拒绝');var cid=$('#caseFilter').val();if(cid)loadCheckpoints(cid);}else{alert(r.msg||'操作失败');}});});
     function esc(s){if(s==null)return'';return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
     loadCases();});
   </script>
