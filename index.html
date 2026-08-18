@@ -52,6 +52,7 @@
     $(function () {
       const AUTH = window.EAISELP_AUTH;
       const MENU = window.EAISELP_MENU;
+      const API = window.EAISELP_API;
 
       // 路由保护：未登录跳登录页 + 恢复登录态
       AUTH.restore(function (user) {
@@ -63,13 +64,18 @@
       function renderFrame(user) {
         $('#userName').text(user.displayName || user.username);
         $('#roleBadge').text(MENU.primaryRoleName(user.roleCodes));
-        const menus = MENU.build(user.roleCodes);
-        renderSidebar(menus);
-        // 默认激活第一个导航项
-        if (menus.length) openTab(menus[0]);
+        // AC-F10.1：先取租户分层开关（本端点登录即可读，api.js 内部 $.ajax 自动带 token），
+        // 菜单仅含启用层功能；请求失败兜底两层全开（menu.build 对缺省字段亦按全开处理）
+        API.bizGet('/api/v1/tenant/layers').done(function (resp) {
+          const d = (resp && resp.code === 0 && resp.data) ? resp.data : {};
+          renderSidebar(user, d);
+        }).fail(function () {
+          renderSidebar(user, {});
+        });
       }
 
-      function renderSidebar(menus) {
+      function renderSidebar(user, layers) {
+        const menus = MENU.build(user.roleCodes, layers);
         const $sb = $('#sidebar').empty();
         menus.forEach(function (m) {
           $('<a href="javascript:void(0)" class="nav-link"></a>')
@@ -81,6 +87,8 @@
         $('<hr>').appendTo($sb);
         $('<a href="javascript:void(0)" class="nav-link text-danger"></a>')
           .text('退出登录').on('click', confirmLogout).appendTo($sb);
+        // 默认激活第一个导航项
+        if (menus.length) openTab(menus[0]);
       }
 
       const openedTabs = {};

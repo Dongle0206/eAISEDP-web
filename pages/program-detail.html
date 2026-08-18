@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>项目群详情 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .section { background:#fff; border-radius:6px; padding:16px 20px; margin-bottom:16px; }
+    .section h6 { color:#1677ff; border-left:3px solid #1677ff; padding-left:8px; margin-bottom:14px; }
+    .info-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px 24px; font-size:14px; }
+    .info-grid .label { color:#999; }
+    .status-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+    .pg-planning { background:#f5f5f5; color:#999; }
+    .pg-active { background:#e6f4ff; color:#1677ff; }
+    .pg-suspended { background:#fff7e6; color:#faad14; }
+    .pg-closed { background:#f0f0f0; color:#888; }
+    .pg-unknown { background:#f5f5f5; color:#999; }
+    .pr-planning { background:#f5f5f5; color:#999; }
+    .pr-in_progress { background:#e6f4ff; color:#1677ff; }
+    .pr-delivered { background:#f6ffed; color:#52c41a; }
+    .pr-closed { background:#f0f0f0; color:#888; }
+    .pr-unknown { background:#f5f5f5; color:#999; }
+    .progress { height:8px; background:#eee; border-radius:4px; overflow:hidden; }
+    .progress .bar { height:100%; background:#1677ff; border-radius:4px; }
+    .charter-box { background:#fafafa; border:1px solid #f0f0f0; border-radius:6px; padding:12px 14px; font-size:14px; white-space:pre-wrap; line-height:1.7; }
+    .empty-row td { text-align:center; color:#999; padding:32px 0; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+
+    <div id="layerTip" class="alert alert-warning d-none" style="font-size:13px;"></div>
+
+    <!-- 基本信息 + 章程 -->
+    <div class="section d-none" id="headSection">
+      <div class="d-flex align-items-center flex-wrap" style="gap:10px;">
+        <h5 class="mb-0" id="pName">项目群详情</h5>
+        <span id="pStatus"></span>
+        <div class="ms-auto text-end">
+          <div style="font-size:12px;color:#999;">群内进度均值（<span id="pCount">0</span> 个项目）</div>
+          <div style="font-size:26px;font-weight:700;color:#1677ff;"><span id="pAvg">0</span>%</div>
+        </div>
+      </div>
+      <div class="info-grid mt-3">
+        <div><span class="label">编号：</span>#<span id="pId"></span></div>
+        <div><span class="label">关联战略：</span><span id="pStrategy"></span></div>
+        <div><span class="label">群经理：</span><span id="pManager"></span></div>
+        <div><span class="label">起止日期：</span><span id="pRange"></span></div>
+        <div><span class="label">创建时间：</span><span id="pCreated"></span></div>
+        <div><span class="label">更新时间：</span><span id="pUpdated"></span></div>
+      </div>
+      <div class="progress mt-2"><div class="bar" id="pAvgBar" style="width:0%;"></div></div>
+      <div class="mt-3">
+        <h6>项目群章程</h6>
+        <div class="charter-box" id="pCharter">（未填写章程）</div>
+      </div>
+      <button class="btn btn-sm btn-outline-secondary mt-3" id="backBtn">← 返回项目群列表</button>
+    </div>
+
+    <!-- 成员项目列表 -->
+    <div class="section d-none" id="projSection">
+      <h6>成员项目（<span id="projCount">0</span>）</h6>
+      <div class="table-responsive">
+        <table class="table table-bordered table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th style="width:90px;">编号</th>
+              <th>名称</th>
+              <th style="width:90px;">状态</th>
+              <th style="width:70px;">优先级</th>
+              <th style="width:220px;">进度（Case 完成/总数）</th>
+              <th style="width:90px;">操作</th>
+            </tr>
+          </thead>
+          <tbody id="projTbody">
+            <tr class="empty-row"><td colspan="6">加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section" id="loadingSection">
+      <div class="text-center text-muted py-4">加载中...</div>
+    </div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const LAYER_TIP = '该层未启用，请联系管理员在分层设置中开启';
+      const PG_TEXT = { planning: '规划中', active: '进行中', suspended: '已暂停', closed: '已关闭' };
+      const PG_CLASS = { planning: 'pg-planning', active: 'pg-active', suspended: 'pg-suspended', closed: 'pg-closed' };
+      const PR_TEXT = { planning: '规划中', in_progress: '进行中', delivered: '已交付', closed: '已关闭' };
+      const PR_CLASS = { planning: 'pr-planning', in_progress: 'pr-in_progress', delivered: 'pr-delivered', closed: 'pr-closed' };
+
+      const id = (new URLSearchParams(location.search).get('id') || '').trim();
+
+      function load() {
+        if (!id) { showTip('缺少项目群 id 参数'); return; }
+        // 详情先渲染；战略名映射异步补齐（L3 关闭时降级显示 #id）
+        API.bizGet('/api/v1/programs/' + encodeURIComponent(id)).done(function (resp) {
+          if (isLayerOff(resp)) { showTip(); return; }
+          if (resp.code !== 0) { showTip(resp.msg || '加载失败'); return; }
+          render(resp.data || {});
+        }).fail(function (xhr) { showTip((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）')); });
+      }
+
+      function isLayerOff(resp) { return resp && (resp.code === 43001 || resp.code === 43002); }
+      function showTip(msg) {
+        $('#loadingSection').addClass('d-none');
+        $('#layerTip').removeClass('d-none').text('⚠ ' + (msg || LAYER_TIP));
+      }
+
+      let strategyMap = null;
+      function fillStrategyName(strategyId) {
+        const $el = $('#pStrategy').text('#' + strategyId + '（战略层未启用，无法解析名称）');
+        API.bizGet('/api/v1/strategies?page=1&size=500&status=all').done(function (resp) {
+          if (resp.code !== 0 || !resp.data) return;
+          strategyMap = {};
+          (resp.data.records || []).forEach(function (s) { strategyMap[s.id] = s.title; });
+          $el.text(strategyMap[strategyId] || ('#' + strategyId));
+        });
+      }
+
+      function render(p) {
+        $('#loadingSection').addClass('d-none');
+        $('#headSection').removeClass('d-none');
+        $('#pName').text(p.name || ('项目群 #' + id));
+        const st = p.status || 'unknown';
+        $('#pStatus').html('<span class="status-badge ' + (PG_CLASS[st] || 'pg-unknown') + '">' + (PG_TEXT[st] || st) + '</span>');
+        $('#pId').text(p.id || id);
+        $('#pStrategy').text('-');
+        if (p.strategyId != null) fillStrategyName(p.strategyId);
+        else $('#pStrategy').html('<span class="text-muted">（未关联战略）</span>');
+        $('#pManager').text(p.pgmManager || '-');
+        $('#pRange').text((p.startDate || p.endDate) ? ((p.startDate || '?') + ' ~ ' + (p.endDate || '?')) : '-');
+        $('#pCreated').text(fmtTime(p.createTime));
+        $('#pUpdated').text(fmtTime(p.updateTime));
+        $('#pCount').text(p.projectCount != null ? p.projectCount : (p.projects ? p.projects.length : 0));
+        const avg = p.avgProgress || 0;
+        $('#pAvg').text(avg);
+        $('#pAvgBar').css('width', Math.min(100, Math.max(0, avg)) + '%');
+        $('#pCharter').text(p.charter || '（未填写章程）');
+
+        // 成员项目
+        const projects = p.projects || [];
+        $('#projSection').removeClass('d-none');
+        $('#projCount').text(projects.length);
+        if (!projects.length) {
+          $('#projTbody').html('<tr class="empty-row"><td colspan="6">暂无成员项目，可在项目管理中将项目挂入本群</td></tr>');
+          return;
+        }
+        $('#projTbody').html(projects.map(function (pr) {
+          const pst = pr.status || 'unknown';
+          const prog = pr.progress || 0;
+          const done = pr.caseDone != null ? pr.caseDone : 0;
+          const total = pr.caseTotal != null ? pr.caseTotal : 0;
+          return '<tr>'
+            + '<td>#' + escapeHtml(pr.id) + '</td>'
+            + '<td><strong>' + escapeHtml(pr.name || '') + '</strong></td>'
+            + '<td><span class="status-badge ' + (PR_CLASS[pst] || 'pr-unknown') + '">' + (PR_TEXT[pst] || pst) + '</span></td>'
+            + '<td>P' + escapeHtml(pr.priority != null ? pr.priority : '-') + '</td>'
+            + '<td><div class="d-flex align-items-center" style="gap:8px;"><div class="progress" style="flex:1;"><div class="bar" style="width:' + Math.min(100, prog) + '%;"></div></div><span style="font-size:12px;color:#1677ff;font-weight:600;white-space:nowrap;">' + prog + '%（' + done + '/' + total + '）</span></div></td>'
+            + '<td><button class="btn btn-sm btn-outline-primary proj-view" data-id="' + pr.id + '">详情</button></td>'
+            + '</tr>';
+        }).join(''));
+      }
+
+      $('#projTbody').on('click', '.proj-view', function () {
+        goPage('project-detail-' + $(this).data('id'), '项目详情', 'pages/project-detail.html?id=' + $(this).data('id'));
+      });
+      $('#backBtn').on('click', function () { goPage('program-list', '项目群管理', 'pages/program-list.html'); });
+
+      function goPage(key, title, page) {
+        if (window.self !== window.top && window.parent && window.parent.eaiselpNav) {
+          window.parent.eaiselpNav(key, title, page);
+        } else {
+          location.href = page.replace(/^pages\//, '');
+        }
+      }
+
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function fmtTime(t) {
+        if (!t) return '-';
+        const d = new Date(typeof t === 'string' ? t.replace('T', ' ') : t);
+        if (isNaN(d.getTime())) return String(t);
+        const p = function (n) { return n < 10 ? '0' + n : n; };
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+          + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+      }
+
+      load();
+    });
+  </script>
+</body>
+</html>

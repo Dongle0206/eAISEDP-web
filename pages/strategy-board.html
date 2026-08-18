@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>战略看板 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .section { background:#fff; border-radius:6px; padding:16px 20px; margin-bottom:16px; }
+    .section h6 { color:#1677ff; border-left:3px solid #1677ff; padding-left:8px; margin-bottom:14px; }
+    .status-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+    .st-draft { background:#f5f5f5; color:#999; }
+    .st-active { background:#e6f4ff; color:#1677ff; }
+    .st-achieved { background:#f6ffed; color:#52c41a; }
+    .st-archived { background:#f0f0f0; color:#888; }
+    .st-unknown { background:#f5f5f5; color:#999; }
+    .pg-planning { background:#f5f5f5; color:#999; }
+    .pg-active { background:#e6f4ff; color:#1677ff; }
+    .pg-suspended { background:#fff7e6; color:#faad14; }
+    .pg-closed { background:#f0f0f0; color:#888; }
+    .pg-unknown { background:#f5f5f5; color:#999; }
+    .kpi-card { border:1px solid #e8e8e8; border-radius:8px; padding:12px 14px; background:#faffff; }
+    .kpi-name { font-size:13px; color:#666; margin-bottom:4px; }
+    .kpi-value { font-size:20px; font-weight:700; color:#1677ff; }
+    .kpi-value .target { font-size:13px; color:#999; font-weight:400; }
+    .progress { height:8px; background:#eee; border-radius:4px; overflow:hidden; }
+    .progress .bar { height:100%; background:#1677ff; border-radius:4px; }
+    .prog-pill { display:flex; align-items:center; gap:8px; }
+    .prog-pill .num { font-size:12px; color:#1677ff; font-weight:600; min-width:64px; text-align:right; }
+    .program-card { border:1px solid #e8e8e8; border-radius:8px; padding:14px 16px; cursor:pointer; transition:box-shadow .15s; background:#fff; }
+    .program-card:hover { box-shadow:0 2px 10px rgba(22,119,255,.18); border-color:#1677ff; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+
+    <div id="layerTip" class="alert alert-warning d-none" style="font-size:13px;"></div>
+
+    <!-- 战略概览 -->
+    <div class="section d-none" id="headSection">
+      <div class="d-flex align-items-center flex-wrap" style="gap:10px;">
+        <h5 class="mb-0" id="sTitle">战略看板</h5>
+        <span id="sStatus"></span>
+        <span class="text-muted" style="font-size:13px;" id="sMeta"></span>
+        <div class="ms-auto text-end">
+          <div style="font-size:12px;color:#999;">总体进度（各项目群均值再平均）</div>
+          <div style="font-size:26px;font-weight:700;color:#1677ff;"><span id="sAvg">0</span>%</div>
+        </div>
+      </div>
+      <div class="progress mt-2"><div class="bar" id="sAvgBar" style="width:0%;"></div></div>
+      <div class="text-muted mt-2" style="font-size:13px;white-space:pre-wrap;" id="sDesc"></div>
+      <button class="btn btn-sm btn-outline-secondary mt-2" id="backBtn">← 返回战略列表</button>
+    </div>
+
+    <!-- KPI 卡片 -->
+    <div class="section d-none" id="kpiSection">
+      <h6>KPI 指标（当前值人工维护）</h6>
+      <div class="row g-3" id="kpiCards"><div class="text-muted">暂无 KPI</div></div>
+    </div>
+
+    <!-- 下辖项目群 -->
+    <div class="section d-none" id="progSection">
+      <h6>下辖项目群（点击卡片下钻）</h6>
+      <div class="row g-3" id="progCards"><div class="text-muted">暂无关联项目群</div></div>
+    </div>
+
+    <div class="section" id="loadingSection">
+      <div class="text-center text-muted py-4">加载中...</div>
+    </div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const LAYER_TIP = '该层未启用，请联系管理员在分层设置中开启';
+      const STATUS_TEXT = { draft: '草稿', active: '进行中', achieved: '已达成', archived: '已归档' };
+      const STATUS_CLASS = { draft: 'st-draft', active: 'st-active', achieved: 'st-achieved', archived: 'st-archived' };
+      const PG_TEXT = { planning: '规划中', active: '进行中', suspended: '已暂停', closed: '已关闭' };
+      const PG_CLASS = { planning: 'pg-planning', active: 'pg-active', suspended: 'pg-suspended', closed: 'pg-closed' };
+      const HORIZON_TEXT = { '1q': '季度', '1y': '一年', '3y': '三年' };
+
+      const id = (new URLSearchParams(location.search).get('id') || '').trim();
+
+      function loadBoard() {
+        if (!id) { showLayerTip('缺少战略 id 参数'); return; }
+        API.bizGet('/api/v1/strategies/' + encodeURIComponent(id) + '/board').done(function (resp) {
+          if (resp.code === 43001 || resp.code === 43002) { showLayerTip(); return; }
+          if (resp.code !== 0) { showLayerTip(resp.msg || '加载失败'); return; }
+          render(resp.data || {});
+        }).fail(function (xhr) {
+          showLayerTip((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'));
+        });
+      }
+
+      function showLayerTip(msg) {
+        $('#loadingSection').addClass('d-none');
+        $('#layerTip').removeClass('d-none').text('⚠ ' + (msg || LAYER_TIP));
+      }
+
+      function parseKpi(kpi) {
+        if (!kpi) return [];
+        try { const arr = JSON.parse(kpi); return Array.isArray(arr) ? arr : []; } catch (e) { return []; }
+      }
+      // 从 "0%"/"10%"/"3" 这类文本中解析数值（解析失败返回 null，仅用于进度条展示）
+      function parseNum(v) {
+        if (v == null || v === '') return null;
+        const m = String(v).replace(/,/g, '').match(/-?\d+(\.\d+)?/);
+        return m ? parseFloat(m[0]) : null;
+      }
+
+      function render(b) {
+        $('#loadingSection').addClass('d-none');
+        // 概览
+        $('#headSection').removeClass('d-none');
+        $('#sTitle').text(b.title || ('战略 #' + id));
+        const st = b.status || 'unknown';
+        $('#sStatus').html('<span class="status-badge ' + (STATUS_CLASS[st] || 'st-unknown') + '">' + (STATUS_TEXT[st] || st) + '</span>');
+        $('#sMeta').text((HORIZON_TEXT[b.horizon] || b.horizon || '-') + (b.owner ? ' · 负责人：' + b.owner : ''));
+        const avg = b.avgProgress || 0;
+        $('#sAvg').text(avg);
+        $('#sAvgBar').css('width', Math.min(100, Math.max(0, avg)) + '%');
+        $('#sDesc').text(b.description || '暂无描述');
+
+        // KPI 卡片
+        const kpis = parseKpi(b.kpi);
+        $('#kpiSection').removeClass('d-none');
+        if (!kpis.length) {
+          $('#kpiCards').html('<div class="text-muted">暂无 KPI，可在战略列表"编辑"中维护</div>');
+        } else {
+          $('#kpiCards').html(kpis.map(function (k) {
+            const cur = k.current != null && k.current !== '' ? k.current : '-';
+            const tgt = k.target != null && k.target !== '' ? k.target : '-';
+            const curN = parseNum(k.current), tgtN = parseNum(k.target);
+            let pct = null;
+            if (curN != null && tgtN != null && tgtN > 0) pct = Math.min(100, Math.max(0, Math.round(curN / tgtN * 100)));
+            return '<div class="col-md-4 col-6"><div class="kpi-card">'
+              + '<div class="kpi-name">' + escapeHtml(k.name || '-') + (k.unit ? '（' + escapeHtml(k.unit) + '）' : '') + '</div>'
+              + '<div class="kpi-value">' + escapeHtml(String(cur)) + ' <span class="target">/ 目标 ' + escapeHtml(String(tgt)) + '</span></div>'
+              + (pct != null ? '<div class="progress mt-2"><div class="bar" style="width:' + pct + '%;"></div></div><div style="font-size:12px;color:#999;margin-top:2px;">达成率 ' + pct + '%</div>' : '')
+              + '</div></div>';
+          }).join(''));
+        }
+
+        // 下辖项目群卡片（点击下钻项目群详情）
+        const progs = b.programs || [];
+        $('#progSection').removeClass('d-none');
+        if (!progs.length) {
+          $('#progCards').html('<div class="text-muted">暂无关联项目群，可在项目群管理中关联本战略</div>');
+        } else {
+          $('#progCards').html(progs.map(function (p) {
+            const pst = p.status || 'unknown';
+            const pavg = p.avgProgress || 0;
+            return '<div class="col-md-4 col-6"><div class="program-card" data-id="' + p.id + '">'
+              + '<div class="d-flex align-items-center"><strong>' + escapeHtml(p.name || ('项目群 #' + p.id)) + '</strong>'
+              + '<span class="status-badge ms-auto ' + (PG_CLASS[pst] || 'pg-unknown') + '">' + (PG_TEXT[pst] || pst) + '</span></div>'
+              + '<div class="prog-pill mt-2"><div class="progress" style="flex:1;"><div class="bar" style="width:' + Math.min(100, Math.max(0, pavg)) + '%;"></div></div><span class="num">' + pavg + '%</span></div>'
+              + '<div style="font-size:12px;color:#999;margin-top:6px;">成员项目 ' + (p.projectCount || 0) + ' 个 · 群内进度均值</div>'
+              + '</div></div>';
+          }).join(''));
+        }
+      }
+
+      $('#progCards').on('click', '.program-card', function () {
+        const pid = $(this).data('id');
+        goPage('program-detail-' + pid, '项目群详情', 'pages/program-detail.html?id=' + pid);
+      });
+      $('#backBtn').on('click', function () { goPage('strategy-list', '战略管理', 'pages/strategy-list.html'); });
+
+      function goPage(key, title, page) {
+        if (window.self !== window.top && window.parent && window.parent.eaiselpNav) {
+          window.parent.eaiselpNav(key, title, page);
+        } else {
+          location.href = page.replace(/^pages\//, '');
+        }
+      }
+
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+
+      loadBoard();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>项目管理 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .status-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+    .pr-planning { background:#f5f5f5; color:#999; }
+    .pr-in_progress { background:#e6f4ff; color:#1677ff; }
+    .pr-delivered { background:#f6ffed; color:#52c41a; }
+    .pr-closed { background:#f0f0f0; color:#888; }
+    .pr-unknown { background:#f5f5f5; color:#999; }
+    .progress { height:8px; background:#eee; border-radius:4px; overflow:hidden; min-width:80px; }
+    .progress .bar { height:100%; background:#1677ff; border-radius:4px; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">项目管理（L2）</h5>
+      <div class="spacer"></div>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">项目群：</span>
+        <select id="programFilter" class="form-select form-select-sm" style="width:auto;max-width:220px;">
+          <option value="">全部</option>
+          <option value="__none__">（独立项目，未挂群）</option>
+        </select>
+      </label>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">状态：</span>
+        <select id="statusFilter" class="form-select form-select-sm" style="width:auto;">
+          <option value="">全部</option>
+          <option value="planning">规划中</option>
+          <option value="in_progress">进行中</option>
+          <option value="delivered">已交付</option>
+          <option value="closed">已关闭</option>
+        </select>
+      </label>
+      <button id="newBtn" class="btn btn-primary btn-sm">+ 新建项目</button>
+    </div>
+
+    <!-- 分层开关关闭提示（43002） -->
+    <div id="layerTip" class="alert alert-warning d-none" style="font-size:13px;"></div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:90px;">编号</th>
+            <th>名称</th>
+            <th style="width:170px;">所属项目群</th>
+            <th style="width:90px;">状态</th>
+            <th style="width:70px;">优先级</th>
+            <th style="width:240px;">进度（Case 完成/总数，自动汇总）</th>
+            <th style="width:170px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="empty-row"><td colspan="7">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pager">
+      <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+      <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+      <span id="pageNumbers" style="font-size:13px;"></span>
+      <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+      <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="10">10/页</option>
+        <option value="20">20/页</option>
+        <option value="50">50/页</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 新建/编辑弹窗 -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">新建项目</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="mb-2"><label class="form-label small">名称 <span class="text-danger">*</span></label><input id="fName" class="form-control form-control-sm" maxlength="200" placeholder="如：三层贯通骨架"></div>
+        <div class="mb-2"><label class="form-label small">所属项目群（可空 = 独立项目）</label>
+          <select id="fProgramId" class="form-select form-select-sm"><option value="">（独立项目）</option></select>
+        </div>
+        <div class="mb-2"><label class="form-label small">描述 / 约束（非空时注入 Case 编排上下文）</label><textarea id="fDesc" class="form-control form-control-sm" rows="3" maxlength="2000" placeholder="项目级约束、技术栈要求等"></textarea></div>
+        <div class="row">
+          <div class="col-6 mb-2"><label class="form-label small">状态</label>
+            <select id="fStatus" class="form-select form-select-sm">
+              <option value="planning">规划中</option>
+              <option value="in_progress">进行中</option>
+              <option value="delivered">已交付</option>
+              <option value="closed">已关闭</option>
+            </select>
+          </div>
+          <div class="col-6 mb-2"><label class="form-label small">优先级（1 高 - 9 低）</label><input type="number" id="fPriority" class="form-control form-control-sm" min="1" max="9" value="5"></div>
+        </div>
+        <div class="text-muted" style="font-size:12px;">进度 / Case 统计由系统按 Case 完成情况自动汇总，不可手工编辑。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const PR_TEXT = { planning: '规划中', in_progress: '进行中', delivered: '已交付', closed: '已关闭' };
+      const PR_CLASS = { planning: 'pr-planning', in_progress: 'pr-in_progress', delivered: 'pr-delivered', closed: 'pr-closed' };
+      const LAYER_TIP = '该层未启用，请联系管理员在分层设置中开启';
+
+      const state = { page: 1, size: 10, programId: '', status: '', total: 0 };
+      let programMap = null; // {id: name}
+
+      // 加载项目群下拉（筛选 + 弹窗共用；本页在 L2 开放下才能进来，失败仅降级）
+      function loadPrograms() {
+        const d = $.Deferred();
+        API.bizGet('/api/v1/programs?page=1&size=500').done(function (resp) {
+          if (resp.code !== 0 || !resp.data) { d.resolve(null); return; }
+          const list = resp.data.records || [];
+          programMap = {};
+          const opts = list.map(function (p) {
+            programMap[p.id] = p.name;
+            return '<option value="' + p.id + '">' + escapeHtml('#' + p.id + ' ' + (p.name || '')) + '</option>';
+          }).join('');
+          $('#programFilter').append(opts);
+          $('#fProgramId').append(opts);
+          d.resolve(programMap);
+        }).fail(function () { d.resolve(null); });
+        return d.promise();
+      }
+
+      function loadList() {
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        // "__none__" 特殊值：前端拉全量后过滤独立项目（后端 programId 参数不支持 is null 查询）
+        if (state.programId && state.programId !== '__none__') params.set('programId', state.programId);
+        if (state.status) params.set('status', state.status);
+        $('#tbody').html('<tr class="empty-row"><td colspan="7">加载中...</td></tr>');
+        API.bizGet('/api/v1/projects?' + params.toString()).done(function (resp) {
+          if (isLayerOff(resp)) { renderLayerOff(); return; }
+          if (resp.code !== 0) { renderError(resp.msg || '加载失败'); return; }
+          const data = resp.data || {};
+          let list = data.records || data.list || [];
+          if (state.programId === '__none__') list = list.filter(function (p) { return p.programId == null; });
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          renderError((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'));
+        });
+      }
+
+      function isLayerOff(resp) { return resp && (resp.code === 43001 || resp.code === 43002); }
+      function renderLayerOff() {
+        $('#layerTip').removeClass('d-none').text('⚠ ' + LAYER_TIP);
+        $('#tbody').html('<tr class="empty-row"><td colspan="7">项目层未启用</td></tr>');
+        $('#pageInfo,#pageNumbers').html('');
+      }
+      function renderError(msg) {
+        $('#tbody').html('<tr class="empty-row"><td colspan="7">' + escapeHtml(msg) + '</td></tr>');
+        $('#pageInfo,#pageNumbers').html('');
+      }
+
+      function renderTable(list) {
+        $('#layerTip').addClass('d-none');
+        if (!list.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="7">暂无项目，点击右上角"新建项目"创建</td></tr>');
+          return;
+        }
+        const rows = list.map(function (p) {
+          const st = p.status || 'unknown';
+          const prog = p.progress || 0;
+          const done = p.caseDone != null ? p.caseDone : 0;
+          const total = p.caseTotal != null ? p.caseTotal : 0;
+          const program = p.programId
+            ? (programMap ? escapeHtml(programMap[p.programId] || ('#' + p.programId)) : '#' + p.programId)
+            : '<span class="text-muted">（独立）</span>';
+          return '<tr>'
+            + '<td>#' + escapeHtml(p.id) + '</td>'
+            + '<td><strong>' + escapeHtml(p.name || '') + '</strong></td>'
+            + '<td>' + program + '</td>'
+            + '<td><span class="status-badge ' + (PR_CLASS[st] || 'pr-unknown') + '">' + (PR_TEXT[st] || st) + '</span></td>'
+            + '<td>P' + escapeHtml(p.priority != null ? p.priority : '-') + '</td>'
+            + '<td><div class="d-flex align-items-center" style="gap:8px;"><div class="progress" style="flex:1;"><div class="bar" style="width:' + Math.min(100, prog) + '%;"></div></div><span style="font-size:12px;color:#1677ff;font-weight:600;white-space:nowrap;">' + prog + '%（' + done + '/' + total + '）</span></div></td>'
+            + '<td style="white-space:nowrap;">'
+            + '<button class="btn btn-sm btn-outline-primary p-view" data-id="' + p.id + '">详情</button> '
+            + '<button class="btn btn-sm btn-outline-secondary p-edit" data-id="' + p.id + '">编辑</button> '
+            + '<button class="btn btn-sm btn-outline-danger p-del" data-id="' + p.id + '">删除</button>'
+            + '</td></tr>';
+        });
+        $('#tbody').html(rows.join(''));
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        const cur = state.page;
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + cur + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', cur <= 1);
+        $('#nextBtn').prop('disabled', cur >= totalPages);
+        const nums = buildPageNums(cur, totalPages);
+        const html = nums.map(function (n) {
+          if (n === '...') return '<span class="mx-1 text-muted">…</span>';
+          const active = n === cur ? 'btn-primary' : 'btn-outline-secondary';
+          return '<button class="btn btn-sm ' + active + ' page-num-btn" data-page="' + n + '">' + n + '</button>';
+        }).join(' ');
+        $('#pageNumbers').html(html);
+      }
+      function buildPageNums(cur, total) {
+        const arr = [];
+        const push = function (n) { if (arr.indexOf(n) === -1) arr.push(n); };
+        push(1);
+        if (cur - 1 > 2) arr.push('...');
+        for (let n = cur - 1; n <= cur + 1; n++) { if (n > 1 && n < total) push(n); }
+        if (cur + 1 < total - 1) arr.push('...');
+        if (total > 1) push(total);
+        return arr;
+      }
+
+      // ---- 新建 / 编辑 ----
+      $('#newBtn').on('click', function () {
+        $('#fId').val('');
+        $('#fName').val(''); $('#fProgramId').val(''); $('#fDesc').val('');
+        $('#fStatus').val('planning'); $('#fPriority').val(5);
+        $('#modalTitle').text('新建项目');
+        new bootstrap.Modal('#editModal').show();
+      });
+
+      $('#tbody').on('click', '.p-edit', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/projects/' + id).done(function (resp) {
+          if (isLayerOff(resp)) { alert(LAYER_TIP); return; }
+          if (resp.code !== 0) { alert(resp.msg || '加载失败'); return; }
+          const p = resp.data || {};
+          $('#fId').val(p.id);
+          $('#fName').val(p.name || '');
+          $('#fProgramId').val(p.programId != null ? String(p.programId) : '');
+          $('#fDesc').val(p.description || '');
+          $('#fStatus').val(p.status || 'planning');
+          $('#fPriority').val(p.priority != null ? p.priority : 5);
+          $('#modalTitle').text('编辑项目 #' + p.id);
+          new bootstrap.Modal('#editModal').show();
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '请求失败'); });
+      });
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const body = {
+          name: $('#fName').val().trim(),
+          programId: $('#fProgramId').val() ? parseInt($('#fProgramId').val(), 10) : null,
+          description: $('#fDesc').val().trim() || null,
+          status: $('#fStatus').val(),
+          priority: parseInt($('#fPriority').val(), 10) || 5
+        };
+        if (!body.name) { alert('名称不能为空'); return; }
+        if (body.priority < 1 || body.priority > 9) { alert('优先级取值 1-9'); return; }
+        const $btn = $(this).prop('disabled', true);
+        const req = id ? API.bizPut('/api/v1/projects/' + id, body) : API.bizPost('/api/v1/projects', body);
+        req.done(function (resp) {
+          if (resp.code === 0) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadList();
+          } else if (isLayerOff(resp)) { alert(LAYER_TIP); }
+          else { alert(resp.msg || '保存失败'); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '保存失败'); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 删除（成员 Case.project_id 置空后删）----
+      $('#tbody').on('click', '.p-del', function () {
+        const id = $(this).data('id');
+        if (!confirm('确认删除项目 #' + id + '？\n删除后其挂接的 Case 将自动解除关联（Case 保留），进度统计随项目一并移除。')) return;
+        API.bizDelete('/api/v1/projects/' + id).done(function (resp) {
+          if (resp.code === 0) { loadList(); }
+          else if (isLayerOff(resp)) { alert(LAYER_TIP); }
+          else { alert(resp.msg || '删除失败'); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '删除失败'); });
+      });
+
+      // ---- 详情 ----
+      $('#tbody').on('click', '.p-view', function () {
+        goPage('project-detail-' + $(this).data('id'), '项目详情', 'pages/project-detail.html?id=' + $(this).data('id'));
+      });
+
+      function goPage(key, title, page) {
+        if (window.self !== window.top && window.parent && window.parent.eaiselpNav) {
+          window.parent.eaiselpNav(key, title, page);
+        } else {
+          location.href = page.replace(/^pages\//, '');
+        }
+      }
+
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+
+      // ---- 事件绑定 ----
+      $('#programFilter').on('change', function () { state.programId = $(this).val(); state.page = 1; loadList(); });
+      $('#statusFilter').on('change', function () { state.status = $(this).val(); state.page = 1; loadList(); });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+      $('#pageNumbers').on('click', '.page-num-btn', function () { state.page = parseInt($(this).data('page'), 10); loadList(); });
+
+      $.when(loadPrograms()).always(loadList);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>门禁规则 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .type-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+    .gt-llm_review { background:#f9f0ff; color:#722ed1; }
+    .gt-auto_check { background:#e6fffb; color:#08979c; }
+    .gt-human_approval { background:#fff7e6; color:#faad14; }
+    .stage-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; background:#e6f4ff; color:#1677ff; }
+    .fa-block { background:#fff1f0; color:#ff4d4f; }
+    .fa-warn { background:#fff7e6; color:#faad14; }
+    .fa-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .conf-code { font-family:Consolas,monospace; font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">门禁规则（L1 治理）</h5>
+      <span class="text-muted" style="font-size:13px;">改参数/启停对新编排即时生效，在跑编排走快照不受影响</span>
+      <div class="spacer"></div>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">状态：</span>
+        <select id="enabledFilter" class="form-select form-select-sm" style="width:auto;">
+          <option value="">全部</option>
+          <option value="1">仅启用</option>
+          <option value="0">仅停用</option>
+        </select>
+      </label>
+      <button id="newBtn" class="btn btn-primary btn-sm">+ 新建规则</button>
+    </div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:60px;">顺序</th>
+            <th style="width:200px;">规则名称</th>
+            <th style="width:100px;">类型</th>
+            <th style="width:170px;">类型配置</th>
+            <th style="width:100px;">挂载阶段</th>
+            <th style="width:80px;">范围</th>
+            <th style="width:100px;">失败动作</th>
+            <th style="width:70px;">重试上限</th>
+            <th style="width:80px;">状态</th>
+            <th style="width:210px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="empty-row"><td colspan="10">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 新建/编辑弹窗 -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">新建门禁规则</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="mb-2"><label class="form-label small">规则名称 <span class="text-danger">*</span></label><input id="fName" class="form-control form-control-sm" maxlength="100" placeholder="如：代码必须过语法验证（租户内唯一）"></div>
+        <div class="row">
+          <div class="col-4 mb-2"><label class="form-label small">门禁类型</label>
+            <select id="fGateType" class="form-select form-select-sm">
+              <option value="auto_check">自动检查（auto_check）</option>
+              <option value="llm_review">LLM 评审（llm_review）</option>
+              <option value="human_approval">人工审批（human_approval）</option>
+            </select>
+          </div>
+          <div class="col-4 mb-2"><label class="form-label small">挂载阶段</label>
+            <select id="fStage" class="form-select form-select-sm">
+              <option value="post_dev">开发后（post_dev）</option>
+              <option value="post_test">测试后（post_test）</option>
+              <option value="pre_deploy">部署前（pre_deploy）</option>
+            </select>
+          </div>
+          <div class="col-4 mb-2"><label class="form-label small">生效范围</label>
+            <select id="fAppliesTo" class="form-select form-select-sm">
+              <option value="all">全部产物（all）</option>
+              <option value="code">代码（code）</option>
+              <option value="design">设计（design）</option>
+              <option value="doc">文档（doc）</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-6 mb-2" id="roleRow"><label class="form-label small">门禁角色（llm_review 必填）</label>
+            <select id="fGateRole" class="form-select form-select-sm">
+              <option value="">（不指定）</option>
+              <option value="team-reviewer">team-reviewer（审查）</option>
+              <option value="team-security">team-security（安全审查）</option>
+              <option value="team-qa">team-qa（测试）</option>
+              <option value="team-pm">team-pm（项目经理）</option>
+            </select>
+          </div>
+          <div class="col-6 mb-2" id="checkRow"><label class="form-label small">检查项（auto_check 必填）</label>
+            <select id="fCheckKey" class="form-select form-select-sm">
+              <option value="">（不指定）</option>
+              <option value="code_validation">code_validation（代码语法验证）</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-4 mb-2"><label class="form-label small">失败动作</label>
+            <select id="fFailAction" class="form-select form-select-sm">
+              <option value="block">block（阻断打回）</option>
+              <option value="warn">warn（告警放行）</option>
+            </select>
+          </div>
+          <div class="col-4 mb-2"><label class="form-label small">重做上限（0=首败即终判）</label><input type="number" id="fMaxRetries" class="form-control form-control-sm" min="0" max="9" placeholder="留空走全局兜底"></div>
+          <div class="col-4 mb-2"><label class="form-label small">同阶段顺序（小者先）</label><input type="number" id="fPriority" class="form-control form-control-sm" min="0" value="100"></div>
+        </div>
+        <div class="mb-0"><label class="form-label small">状态</label>
+          <select id="fEnabled" class="form-select form-select-sm" style="width:auto;">
+            <option value="1">启用</option>
+            <option value="0">停用</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const GT_TEXT = { llm_review: 'LLM 评审', auto_check: '自动检查', human_approval: '人工审批' };
+      const GT_CLASS = { llm_review: 'gt-llm_review', auto_check: 'gt-auto_check', human_approval: 'gt-human_approval' };
+      const STAGE_TEXT = { post_dev: '开发后', post_test: '测试后', pre_deploy: '部署前' };
+      const APPLIES_TEXT = { all: '全部', code: '代码', design: '设计', doc: '文档' };
+      const FA_TEXT = { block: '阻断', warn: '告警放行' };
+      const FA_CLASS = { block: 'fa-block', warn: 'fa-warn' };
+
+      let enabledFilter = '';
+
+      function loadList() {
+        $('#tbody').html('<tr class="empty-row"><td colspan="10">加载中...</td></tr>');
+        const q = enabledFilter !== '' ? ('?enabled=' + enabledFilter) : '';
+        API.bizGet('/api/v1/gate-rules' + q).done(function (resp) {
+          if (resp.code !== 0) {
+            $('#tbody').html('<tr class="empty-row"><td colspan="10">' + escapeHtml(resp.msg || '加载失败') + '</td></tr>');
+            return;
+          }
+          renderTable(resp.data || []);
+        }).fail(function (xhr) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="10">' + escapeHtml((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）')) + '</td></tr>');
+        });
+      }
+
+      function renderTable(list) {
+        if (!list.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="10">暂无门禁规则，点击右上角"新建规则"创建</td></tr>');
+          return;
+        }
+        const rows = list.map(function (r) {
+          const gt = r.gateType || 'auto_check';
+          const enabled = r.enabled === 1 || r.enabled === true;
+          // 三类型字段联动：llm_review 显 gateRole / auto_check 显 checkKey / human_approval 无
+          let conf = '-';
+          if (gt === 'llm_review' && r.gateRole) conf = '<span class="conf-code">' + escapeHtml(r.gateRole) + '</span>';
+          else if (gt === 'auto_check' && r.checkKey) conf = '<span class="conf-code">' + escapeHtml(r.checkKey) + '</span>';
+          return '<tr>'
+            + '<td>' + escapeHtml(r.priority != null ? r.priority : '-') + '</td>'
+            + '<td><strong>' + escapeHtml(r.name || '') + '</strong></td>'
+            + '<td><span class="type-badge ' + (GT_CLASS[gt] || 'gt-auto_check') + '">' + (GT_TEXT[gt] || gt) + '</span></td>'
+            + '<td>' + conf + '</td>'
+            + '<td><span class="stage-badge">' + (STAGE_TEXT[r.stage] || escapeHtml(r.stage || '-')) + '</span></td>'
+            + '<td>' + (APPLIES_TEXT[r.appliesTo] || escapeHtml(r.appliesTo || '-')) + '</td>'
+            + '<td><span class="fa-badge ' + (FA_CLASS[r.failAction] || 'fa-warn') + '">' + (FA_TEXT[r.failAction] || escapeHtml(r.failAction || '-')) + '</span></td>'
+            + '<td>' + (r.maxRetries != null ? r.maxRetries : '<span class="text-muted">兜底</span>') + '</td>'
+            + '<td>' + (enabled ? '<span class="badge bg-success">启用</span>' : '<span class="badge bg-secondary">停用</span>') + '</td>'
+            + '<td style="white-space:nowrap;">'
+            + '<button class="btn btn-sm btn-outline-secondary g-edit" data-id="' + r.id + '">编辑</button> '
+            + (enabled
+              ? '<button class="btn btn-sm btn-outline-warning g-toggle" data-id="' + r.id + '" data-en="0">停用</button>'
+              : '<button class="btn btn-sm btn-outline-success g-toggle" data-id="' + r.id + '" data-en="1">启用</button>')
+            + ' <button class="btn btn-sm btn-outline-danger g-del" data-id="' + r.id + '">删除</button>'
+            + '</td></tr>';
+        });
+        $('#tbody').html(rows.join(''));
+      }
+
+      // 类型联动显示
+      function syncTypeRows() {
+        const gt = $('#fGateType').val();
+        $('#roleRow').toggle(gt === 'llm_review');
+        $('#checkRow').toggle(gt === 'auto_check');
+      }
+      $('#fGateType').on('change', syncTypeRows);
+
+      // ---- 新建 / 编辑 ----
+      $('#newBtn').on('click', function () {
+        $('#fId').val('');
+        $('#fName').val('');
+        $('#fGateType').val('auto_check'); $('#fStage').val('post_dev'); $('#fAppliesTo').val('all');
+        $('#fGateRole').val(''); $('#fCheckKey').val('');
+        $('#fFailAction').val('block'); $('#fMaxRetries').val(''); $('#fPriority').val(100);
+        $('#fEnabled').val('1');
+        syncTypeRows();
+        $('#modalTitle').text('新建门禁规则');
+        new bootstrap.Modal('#editModal').show();
+      });
+
+      $('#tbody').on('click', '.g-edit', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/gate-rules/' + id).done(function (resp) {
+          if (resp.code !== 0) { alert(resp.msg || '加载失败'); return; }
+          const r = resp.data || {};
+          $('#fId').val(r.id);
+          $('#fName').val(r.name || '');
+          $('#fGateType').val(r.gateType || 'auto_check');
+          $('#fStage').val(r.stage || 'post_dev');
+          $('#fAppliesTo').val(r.appliesTo || 'all');
+          $('#fGateRole').val(r.gateRole || '');
+          $('#fCheckKey').val(r.checkKey || '');
+          $('#fFailAction').val(r.failAction || 'block');
+          $('#fMaxRetries').val(r.maxRetries != null ? r.maxRetries : '');
+          $('#fPriority').val(r.priority != null ? r.priority : 100);
+          $('#fEnabled').val(r.enabled === 1 || r.enabled === true ? '1' : '0');
+          syncTypeRows();
+          $('#modalTitle').text('编辑规则 #' + r.id);
+          new bootstrap.Modal('#editModal').show();
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '请求失败'); });
+      });
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const gt = $('#fGateType').val();
+        if (!$('#fName').val().trim()) { alert('规则名称不能为空'); return; }
+        if (gt === 'llm_review' && !$('#fGateRole').val()) { alert('llm_review 类型必须指定门禁角色'); return; }
+        if (gt === 'auto_check' && !$('#fCheckKey').val()) { alert('auto_check 类型必须指定检查项'); return; }
+        const body = {
+          name: $('#fName').val().trim(),
+          gateType: gt,
+          gateRole: gt === 'llm_review' ? $('#fGateRole').val() : null,
+          checkKey: gt === 'auto_check' ? $('#fCheckKey').val() : null,
+          appliesTo: $('#fAppliesTo').val(),
+          stage: $('#fStage').val(),
+          maxRetries: $('#fMaxRetries').val() === '' ? null : parseInt($('#fMaxRetries').val(), 10),
+          failAction: $('#fFailAction').val(),
+          enabled: $('#fEnabled').val() === '1',
+          priority: parseInt($('#fPriority').val(), 10) || 100
+        };
+        const $btn = $(this).prop('disabled', true);
+        const req = id ? API.bizPut('/api/v1/gate-rules/' + id, body) : API.bizPost('/api/v1/gate-rules', body);
+        req.done(function (resp) {
+          if (resp.code === 0) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadList();
+          } else { alert(resp.msg || '保存失败'); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '保存失败'); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 启停（对新编排生效，在跑编排走快照）----
+      $('#tbody').on('click', '.g-toggle', function () {
+        const id = $(this).data('id');
+        const en = $(this).data('en') === '1';
+        API.bizPut('/api/v1/gate-rules/' + id + '/enabled', { enabled: en }).done(function (resp) {
+          if (resp.code === 0) { loadList(); }
+          else { alert(resp.msg || '操作失败'); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '操作失败'); });
+      });
+
+      // ---- 删除 ----
+      $('#tbody').on('click', '.g-del', function () {
+        const id = $(this).data('id');
+        if (!confirm('确认删除该门禁规则？删除后新编排不再执行该规则。')) return;
+        API.bizDelete('/api/v1/gate-rules/' + id).done(function (resp) {
+          if (resp.code === 0) { loadList(); }
+          else { alert(resp.msg || '删除失败'); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '删除失败'); });
+      });
+
+      $('#enabledFilter').on('change', function () { enabledFilter = $(this).val(); loadList(); });
+
+      // ---- 工具 ----
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+
+      loadList();
+    });
+  </script>
+</body>
+</html>

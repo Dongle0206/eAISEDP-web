@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>架构原则 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .type-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+    .tp-tech { background:#e6f4ff; color:#1677ff; }
+    .tp-data { background:#e6fffb; color:#08979c; }
+    .tp-security { background:#fff1f0; color:#ff4d4f; }
+    .tp-governance { background:#f9f0ff; color:#722ed1; }
+    .lv-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; font-weight:600; }
+    .lv-must { background:#fff1f0; color:#ff4d4f; }
+    .lv-should { background:#fff7e6; color:#faad14; }
+    .lv-may { background:#f6ffed; color:#52c41a; }
+    .code-chip { font-family:Consolas,monospace; font-weight:700; color:#1677ff; }
+    .content-clip { max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">架构原则（L1 治理）</h5>
+      <span class="text-muted" style="font-size:13px;">启用原则注入已绑定项目的 Case 编排上下文；must 级违反将被 Reviewer 门禁拦截</span>
+      <div class="spacer"></div>
+      <button id="newBtn" class="btn btn-primary btn-sm">+ 新建原则</button>
+    </div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:80px;">编号</th>
+            <th style="width:190px;">标题</th>
+            <th style="width:90px;">类型</th>
+            <th style="width:80px;">级别</th>
+            <th>内容</th>
+            <th style="width:80px;">状态</th>
+            <th style="width:230px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="empty-row"><td colspan="7">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 新建/编辑弹窗 -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">新建原则</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="row">
+          <div class="col-4 mb-2"><label class="form-label small">原则编号 <span class="text-danger">*</span></label><input id="fCode" class="form-control form-control-sm" maxlength="20" placeholder="如 P11（租户内唯一）"></div>
+          <div class="col-8 mb-2"><label class="form-label small">标题 <span class="text-danger">*</span></label><input id="fTitle" class="form-control form-control-sm" maxlength="200" placeholder="如：多租户数据隔离"></div>
+        </div>
+        <div class="mb-2"><label class="form-label small">原则内容（注入编排上下文，建议 ≤2000 字符）</label><textarea id="fContent" class="form-control form-control-sm" rows="4" maxlength="2000"></textarea></div>
+        <div class="row">
+          <div class="col-4 mb-2"><label class="form-label small">类型</label>
+            <select id="fType" class="form-select form-select-sm">
+              <option value="tech">技术</option>
+              <option value="data">数据</option>
+              <option value="security">安全</option>
+              <option value="governance">治理</option>
+            </select>
+          </div>
+          <div class="col-4 mb-2"><label class="form-label small">执行级别</label>
+            <select id="fLevel" class="form-select form-select-sm">
+              <option value="must">must（强制，门禁拦截）</option>
+              <option value="should">should（建议）</option>
+              <option value="may">may（可选）</option>
+            </select>
+          </div>
+          <div class="col-4 mb-2"><label class="form-label small">状态</label>
+            <select id="fEnabled" class="form-select form-select-sm">
+              <option value="1">启用</option>
+              <option value="0">停用</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <!-- 项目绑定管理弹窗 -->
+  <div class="modal fade" id="bindModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="bindTitle">绑定项目</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="bId">
+        <p class="text-muted mb-2" style="font-size:13px;">勾选需要应用本原则的项目（保存为全量覆盖，取消勾选即解绑）。</p>
+        <div id="bindList" style="max-height:320px;overflow:auto;border:1px solid #eee;border-radius:6px;padding:8px 12px;">
+          <div class="text-muted py-2">加载中...</div>
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="bindSaveBtn" class="btn btn-primary btn-sm">保存绑定</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const TP_TEXT = { tech: '技术', data: '数据', security: '安全', governance: '治理' };
+      const TP_CLASS = { tech: 'tp-tech', data: 'tp-data', security: 'tp-security', governance: 'tp-governance' };
+      const LV_TEXT = { must: '强制', should: '建议', may: '可选' };
+      const LV_CLASS = { must: 'lv-must', should: 'lv-should', may: 'lv-may' };
+      const LAYER_TIP = '该层未启用，请联系管理员在分层设置中开启';
+
+      function loadList() {
+        $('#tbody').html('<tr class="empty-row"><td colspan="7">加载中...</td></tr>');
+        API.bizGet('/api/v1/principles').done(function (resp) {
+          if (resp.code !== 0) {
+            $('#tbody').html('<tr class="empty-row"><td colspan="7">' + escapeHtml(resp.msg || '加载失败') + '</td></tr>');
+            return;
+          }
+          renderTable(resp.data || []);
+        }).fail(function (xhr) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="7">' + escapeHtml((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）')) + '</td></tr>');
+        });
+      }
+
+      function renderTable(list) {
+        if (!list.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="7">暂无原则，点击右上角"新建原则"创建</td></tr>');
+          return;
+        }
+        const rows = list.map(function (p) {
+          const enabled = p.enabled === 1 || p.enabled === true;
+          const tp = p.principleType || 'tech';
+          const lv = p.enforceLevel || 'should';
+          return '<tr>'
+            + '<td><span class="code-chip">' + escapeHtml(p.code || '') + '</span></td>'
+            + '<td><strong>' + escapeHtml(p.title || '') + '</strong></td>'
+            + '<td><span class="type-badge ' + (TP_CLASS[tp] || 'tp-tech') + '">' + (TP_TEXT[tp] || tp) + '</span></td>'
+            + '<td><span class="lv-badge ' + (LV_CLASS[lv] || 'lv-should') + '">' + (LV_TEXT[lv] || lv) + '</span></td>'
+            + '<td><span class="content-clip" title="' + escapeAttr(p.content || '') + '">' + escapeHtml(p.content || '-') + '</span></td>'
+            + '<td>' + (enabled ? '<span class="badge bg-success">启用</span>' : '<span class="badge bg-secondary">停用</span>') + '</td>'
+            + '<td style="white-space:nowrap;">'
+            + '<button class="btn btn-sm btn-outline-secondary a-edit" data-id="' + p.id + '">编辑</button> '
+            + '<button class="btn btn-sm btn-outline-primary a-bind" data-id="' + p.id + '" data-code="' + escapeAttr(p.code || '') + '">绑定项目</button> '
+            + (enabled
+              ? '<button class="btn btn-sm btn-outline-warning a-toggle" data-id="' + p.id + '" data-en="0">停用</button>'
+              : '<button class="btn btn-sm btn-outline-success a-toggle" data-id="' + p.id + '" data-en="1">启用</button>')
+            + ' <button class="btn btn-sm btn-outline-danger a-del" data-id="' + p.id + '">删除</button>'
+            + '</td></tr>';
+        });
+        $('#tbody').html(rows.join(''));
+      }
+
+      // ---- 新建 / 编辑 ----
+      $('#newBtn').on('click', function () {
+        $('#fId').val('');
+        $('#fCode').val('').prop('disabled', false);
+        $('#fTitle').val(''); $('#fContent').val('');
+        $('#fType').val('tech'); $('#fLevel').val('must'); $('#fEnabled').val('1');
+        $('#modalTitle').text('新建原则');
+        new bootstrap.Modal('#editModal').show();
+      });
+
+      $('#tbody').on('click', '.a-edit', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/principles/' + id).done(function (resp) {
+          if (resp.code !== 0) { alert(resp.msg || '加载失败'); return; }
+          const p = resp.data || {};
+          $('#fId').val(p.id);
+          $('#fCode').val(p.code || '').prop('disabled', false);
+          $('#fTitle').val(p.title || '');
+          $('#fContent').val(p.content || '');
+          $('#fType').val(p.principleType || 'tech');
+          $('#fLevel').val(p.enforceLevel || 'must');
+          $('#fEnabled').val(p.enabled === 1 || p.enabled === true ? '1' : '0');
+          $('#modalTitle').text('编辑原则 ' + (p.code || ('#' + p.id)));
+          new bootstrap.Modal('#editModal').show();
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '请求失败'); });
+      });
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const body = {
+          code: $('#fCode').val().trim(),
+          title: $('#fTitle').val().trim(),
+          content: $('#fContent').val().trim() || null,
+          principleType: $('#fType').val(),
+          enforceLevel: $('#fLevel').val(),
+          enabled: $('#fEnabled').val() === '1'
+        };
+        if (!body.code) { alert('编号不能为空'); return; }
+        if (!body.title) { alert('标题不能为空'); return; }
+        const $btn = $(this).prop('disabled', true);
+        const req = id ? API.bizPut('/api/v1/principles/' + id, body) : API.bizPost('/api/v1/principles', body);
+        req.done(function (resp) {
+          if (resp.code === 0) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadList();
+          } else { alert(resp.msg || '保存失败'); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '保存失败'); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 启停（即时影响新编排注入，绑定关系保留）----
+      $('#tbody').on('click', '.a-toggle', function () {
+        const id = $(this).data('id');
+        const en = $(this).data('en') === '1';
+        API.bizPut('/api/v1/principles/' + id + '/enabled', { enabled: en }).done(function (resp) {
+          if (resp.code === 0) { loadList(); }
+          else { alert(resp.msg || '操作失败'); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '操作失败'); });
+      });
+
+      // ---- 删除（同步清理项目绑定）----
+      $('#tbody').on('click', '.a-del', function () {
+        const id = $(this).data('id');
+        if (!confirm('确认删除该原则？\n删除后与项目的绑定关系将一并清除。')) return;
+        API.bizDelete('/api/v1/principles/' + id).done(function (resp) {
+          if (resp.code === 0) { loadList(); }
+          else { alert(resp.msg || '删除失败'); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '删除失败'); });
+      });
+
+      // ---- 项目绑定管理（全量覆盖）----
+      $('#tbody').on('click', '.a-bind', function () {
+        const id = $(this).data('id');
+        const code = $(this).data('code') || '';
+        $('#bId').val(id);
+        $('#bindTitle').text('绑定项目 - ' + code);
+        const $list = $('#bindList').html('<div class="text-muted py-2">加载中...</div>');
+        new bootstrap.Modal('#bindModal').show();
+        // 并行：全量项目（可绑清单） + 该原则已绑定项目（预勾选）
+        const projectsReq = API.bizGet('/api/v1/projects?page=1&size=500');
+        const boundReq = API.bizGet('/api/v1/principles/' + id + '/projects');
+        $.when(projectsReq, boundReq).done(function (pr, br) {
+          const presp = pr[0], bresp = br[0];
+          // 项目层未启用（43002）时无法绑定项目
+          if (presp.code === 43001 || presp.code === 43002) {
+            $list.html('<div class="alert alert-warning py-2 mb-0" style="font-size:13px;">⚠ ' + LAYER_TIP + '，暂无法管理项目绑定。</div>');
+            $('#bindSaveBtn').prop('disabled', true);
+            return;
+          }
+          $('#bindSaveBtn').prop('disabled', false);
+          if (presp.code !== 0) {
+            $list.html('<div class="text-danger py-2">' + escapeHtml(presp.msg || '项目清单加载失败') + '</div>');
+            return;
+          }
+          const projects = (presp.data && (presp.data.records || presp.data.list)) || [];
+          if (!projects.length) {
+            $list.html('<div class="text-muted py-2">暂无项目可绑定（可先在"项目管理"中创建）</div>');
+            return;
+          }
+          let boundMap = {};
+          if (bresp.code === 0 && Array.isArray(bresp.data)) {
+            bresp.data.forEach(function (b) { boundMap[b.projectId] = b; });
+          }
+          $list.html(projects.map(function (p) {
+            const bound = !!boundMap[p.id];
+            return '<div class="form-check">'
+              + '<input class="form-check-input bind-ck" type="checkbox" value="' + p.id + '" id="ck-' + p.id + '"' + (bound ? ' checked' : '') + '>'
+              + '<label class="form-check-label" for="ck-' + p.id + '" style="font-size:13px;">#' + escapeHtml(p.id) + ' ' + escapeHtml(p.name || '') + (bound && boundMap[p.id].enabled === false ? ' <span class="text-muted">（项目级停用）</span>' : '') + '</label>'
+              + '</div>';
+          }).join(''));
+        }).fail(function (xhr) {
+          $list.html('<div class="text-danger py-2">' + escapeHtml((xhr.responseJSON && xhr.responseJSON.msg) || '加载失败') + '</div>');
+        });
+      });
+
+      $('#bindSaveBtn').on('click', function () {
+        const id = $('#bId').val();
+        const ids = [];
+        $('#bindList .bind-ck:checked').each(function () { ids.push(parseInt($(this).val(), 10)); });
+        const $btn = $(this).prop('disabled', true);
+        API.bizPut('/api/v1/principles/' + id + '/projects', { projectIds: ids }).done(function (resp) {
+          if (resp.code === 0) {
+            bootstrap.Modal.getInstance(document.getElementById('bindModal')).hide();
+            loadList();
+          } else if (resp.code === 43001 || resp.code === 43002) {
+            alert(LAYER_TIP);
+          } else { alert(resp.msg || '保存失败'); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '保存失败'); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 工具 ----
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function escapeAttr(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+
+      loadList();
+    });
+  </script>
+</body>
+</html>

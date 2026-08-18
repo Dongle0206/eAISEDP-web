@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>项目群管理 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .status-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+    .pg-planning { background:#f5f5f5; color:#999; }
+    .pg-active { background:#e6f4ff; color:#1677ff; }
+    .pg-suspended { background:#fff7e6; color:#faad14; }
+    .pg-closed { background:#f0f0f0; color:#888; }
+    .pg-unknown { background:#f5f5f5; color:#999; }
+    .progress { height:8px; background:#eee; border-radius:4px; overflow:hidden; min-width:80px; }
+    .progress .bar { height:100%; background:#1677ff; border-radius:4px; }
+    .prog-pill { display:flex; align-items:center; gap:8px; }
+    .prog-pill .num { font-size:12px; color:#1677ff; font-weight:600; min-width:34px; text-align:right; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">项目群管理（L2）</h5>
+      <div class="spacer"></div>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">战略：</span>
+        <select id="strategyFilter" class="form-select form-select-sm" style="width:auto;max-width:220px;">
+          <option value="">全部</option>
+        </select>
+      </label>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">状态：</span>
+        <select id="statusFilter" class="form-select form-select-sm" style="width:auto;">
+          <option value="">全部</option>
+          <option value="planning">规划中</option>
+          <option value="active">进行中</option>
+          <option value="suspended">已暂停</option>
+          <option value="closed">已关闭</option>
+        </select>
+      </label>
+      <button id="newBtn" class="btn btn-primary btn-sm">+ 新建项目群</button>
+    </div>
+
+    <!-- 分层开关关闭提示（43002） -->
+    <div id="layerTip" class="alert alert-warning d-none" style="font-size:13px;"></div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:90px;">编号</th>
+            <th>名称</th>
+            <th style="width:170px;">关联战略</th>
+            <th style="width:90px;">状态</th>
+            <th style="width:70px;">项目数</th>
+            <th style="width:200px;">群进度均值</th>
+            <th style="width:110px;">负责人</th>
+            <th style="width:190px;">起止日期</th>
+            <th style="width:170px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="empty-row"><td colspan="9">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pager">
+      <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+      <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+      <span id="pageNumbers" style="font-size:13px;"></span>
+      <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+      <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="10">10/页</option>
+        <option value="20">20/页</option>
+        <option value="50">50/页</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 新建/编辑弹窗 -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">新建项目群</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="mb-2"><label class="form-label small">名称 <span class="text-danger">*</span></label><input id="fName" class="form-control form-control-sm" maxlength="200" placeholder="如：平台建设群"></div>
+        <div class="mb-2"><label class="form-label small">章程（目标 / 边界，下行约束成员项目）</label><textarea id="fCharter" class="form-control form-control-sm" rows="4" maxlength="4000" placeholder="目标：…&#10;边界：…"></textarea></div>
+        <div class="row">
+          <div class="col-6 mb-2"><label class="form-label small">关联战略（可空 = 不挂战略，灵活接入）</label>
+            <select id="fStrategyId" class="form-select form-select-sm"><option value="">（不关联）</option></select>
+          </div>
+          <div class="col-3 mb-2"><label class="form-label small">状态</label>
+            <select id="fStatus" class="form-select form-select-sm">
+              <option value="planning">规划中</option>
+              <option value="active">进行中</option>
+              <option value="suspended">已暂停</option>
+              <option value="closed">已关闭</option>
+            </select>
+          </div>
+          <div class="col-3 mb-2"><label class="form-label small">群经理</label><input id="fManager" class="form-control form-control-sm" placeholder="admin"></div>
+        </div>
+        <div class="row">
+          <div class="col-6 mb-2"><label class="form-label small">开始日期</label><input type="date" id="fStartDate" class="form-control form-control-sm"></div>
+          <div class="col-6 mb-2"><label class="form-label small">结束日期</label><input type="date" id="fEndDate" class="form-control form-control-sm"></div>
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const PG_TEXT = { planning: '规划中', active: '进行中', suspended: '已暂停', closed: '已关闭' };
+      const PG_CLASS = { planning: 'pg-planning', active: 'pg-active', suspended: 'pg-suspended', closed: 'pg-closed' };
+      const LAYER_TIP = '该层未启用，请联系管理员在分层设置中开启';
+
+      const state = { page: 1, size: 10, strategyId: '', status: '', total: 0 };
+      let strategyMap = null; // {id: title}；L3 关闭时为 null（显示 #id）
+
+      // 加载战略下拉（筛选 + 弹窗共用）。L3 未启用（43001）时静默降级
+      function loadStrategies() {
+        const d = $.Deferred();
+        API.bizGet('/api/v1/strategies?page=1&size=500&status=all').done(function (resp) {
+          if (resp.code !== 0 || !resp.data) { d.resolve(null); return; }
+          const list = resp.data.records || [];
+          strategyMap = {};
+          const opts = list.map(function (s) {
+            strategyMap[s.id] = s.title;
+            return '<option value="' + s.id + '">' + escapeHtml('#' + s.id + ' ' + (s.title || '')) + '</option>';
+          }).join('');
+          $('#strategyFilter').append(opts);
+          $('#fStrategyId').append(opts);
+          d.resolve(strategyMap);
+        }).fail(function () { d.resolve(null); });
+        return d.promise();
+      }
+
+      function loadList() {
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.strategyId) params.set('strategyId', state.strategyId);
+        if (state.status) params.set('status', state.status);
+        $('#tbody').html('<tr class="empty-row"><td colspan="9">加载中...</td></tr>');
+        API.bizGet('/api/v1/programs?' + params.toString()).done(function (resp) {
+          if (isLayerOff(resp)) { renderLayerOff(); return; }
+          if (resp.code !== 0) { renderError(resp.msg || '加载失败'); return; }
+          const data = resp.data || {};
+          const list = data.records || data.list || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          renderError((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'));
+        });
+      }
+
+      function isLayerOff(resp) { return resp && (resp.code === 43001 || resp.code === 43002); }
+      function renderLayerOff() {
+        $('#layerTip').removeClass('d-none').text('⚠ ' + LAYER_TIP);
+        $('#tbody').html('<tr class="empty-row"><td colspan="9">项目群层未启用</td></tr>');
+        $('#pageInfo,#pageNumbers').html('');
+      }
+      function renderError(msg) {
+        $('#tbody').html('<tr class="empty-row"><td colspan="9">' + escapeHtml(msg) + '</td></tr>');
+        $('#pageInfo,#pageNumbers').html('');
+      }
+
+      function renderTable(list) {
+        $('#layerTip').addClass('d-none');
+        if (!list.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="9">暂无项目群，点击右上角"新建项目群"创建</td></tr>');
+          return;
+        }
+        const rows = list.map(function (p) {
+          const st = p.status || 'unknown';
+          const avg = p.avgProgress || 0;
+          const strategy = p.strategyId
+            ? (strategyMap ? escapeHtml(strategyMap[p.strategyId] || ('#' + p.strategyId)) : '#' + p.strategyId)
+            : '<span class="text-muted">（未关联）</span>';
+          const range = (p.startDate || p.endDate) ? ((p.startDate || '?') + ' ~ ' + (p.endDate || '?')) : '-';
+          return '<tr>'
+            + '<td>#' + escapeHtml(p.id) + '</td>'
+            + '<td><strong>' + escapeHtml(p.name || '') + '</strong></td>'
+            + '<td>' + strategy + '</td>'
+            + '<td><span class="status-badge ' + (PG_CLASS[st] || 'pg-unknown') + '">' + (PG_TEXT[st] || st) + '</span></td>'
+            + '<td>' + (p.projectCount != null ? p.projectCount : '-') + '</td>'
+            + '<td><div class="prog-pill"><div class="progress" style="flex:1;"><div class="bar" style="width:' + Math.min(100, avg) + '%;"></div></div><span class="num">' + avg + '%</span></div></td>'
+            + '<td>' + escapeHtml(p.pgmManager || '-') + '</td>'
+            + '<td style="font-size:13px;">' + escapeHtml(range) + '</td>'
+            + '<td style="white-space:nowrap;">'
+            + '<button class="btn btn-sm btn-outline-primary p-view" data-id="' + p.id + '">详情</button> '
+            + '<button class="btn btn-sm btn-outline-secondary p-edit" data-id="' + p.id + '">编辑</button> '
+            + '<button class="btn btn-sm btn-outline-danger p-del" data-id="' + p.id + '">删除</button>'
+            + '</td></tr>';
+        });
+        $('#tbody').html(rows.join(''));
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        const cur = state.page;
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + cur + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', cur <= 1);
+        $('#nextBtn').prop('disabled', cur >= totalPages);
+        const nums = buildPageNums(cur, totalPages);
+        const html = nums.map(function (n) {
+          if (n === '...') return '<span class="mx-1 text-muted">…</span>';
+          const active = n === cur ? 'btn-primary' : 'btn-outline-secondary';
+          return '<button class="btn btn-sm ' + active + ' page-num-btn" data-page="' + n + '">' + n + '</button>';
+        }).join(' ');
+        $('#pageNumbers').html(html);
+      }
+      function buildPageNums(cur, total) {
+        const arr = [];
+        const push = function (n) { if (arr.indexOf(n) === -1) arr.push(n); };
+        push(1);
+        if (cur - 1 > 2) arr.push('...');
+        for (let n = cur - 1; n <= cur + 1; n++) { if (n > 1 && n < total) push(n); }
+        if (cur + 1 < total - 1) arr.push('...');
+        if (total > 1) push(total);
+        return arr;
+      }
+
+      // ---- 新建 / 编辑 ----
+      $('#newBtn').on('click', function () {
+        $('#fId').val('');
+        $('#fName').val(''); $('#fCharter').val(''); $('#fStrategyId').val('');
+        $('#fStatus').val('planning'); $('#fManager').val('');
+        $('#fStartDate').val(''); $('#fEndDate').val('');
+        $('#modalTitle').text('新建项目群');
+        new bootstrap.Modal('#editModal').show();
+      });
+
+      $('#tbody').on('click', '.p-edit', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/programs/' + id).done(function (resp) {
+          if (isLayerOff(resp)) { alert(LAYER_TIP); return; }
+          if (resp.code !== 0) { alert(resp.msg || '加载失败'); return; }
+          const p = resp.data || {};
+          $('#fId').val(p.id);
+          $('#fName').val(p.name || '');
+          $('#fCharter').val(p.charter || '');
+          $('#fStrategyId').val(p.strategyId != null ? String(p.strategyId) : '');
+          $('#fStatus').val(p.status || 'planning');
+          $('#fManager').val(p.pgmManager || '');
+          $('#fStartDate').val(p.startDate || '');
+          $('#fEndDate').val(p.endDate || '');
+          $('#modalTitle').text('编辑项目群 #' + p.id);
+          new bootstrap.Modal('#editModal').show();
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '请求失败'); });
+      });
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const body = {
+          name: $('#fName').val().trim(),
+          charter: $('#fCharter').val().trim() || null,
+          strategyId: $('#fStrategyId').val() ? parseInt($('#fStrategyId').val(), 10) : null,
+          status: $('#fStatus').val(),
+          pgmManager: $('#fManager').val().trim() || null,
+          startDate: $('#fStartDate').val() || null,
+          endDate: $('#fEndDate').val() || null
+        };
+        if (!body.name) { alert('名称不能为空'); return; }
+        if (body.startDate && body.endDate && body.startDate > body.endDate) { alert('开始日期不能晚于结束日期'); return; }
+        const $btn = $(this).prop('disabled', true);
+        const req = id ? API.bizPut('/api/v1/programs/' + id, body) : API.bizPost('/api/v1/programs', body);
+        req.done(function (resp) {
+          if (resp.code === 0) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadList();
+          } else if (isLayerOff(resp)) { alert(LAYER_TIP); }
+          else { alert(resp.msg || '保存失败'); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '保存失败'); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 删除（成员项目 program_id 置空后删，二次确认由前端承担）----
+      $('#tbody').on('click', '.p-del', function () {
+        const id = $(this).data('id');
+        if (!confirm('确认删除项目群 #' + id + '？\n删除后其成员项目将解除归属（变为独立项目），项目本身保留。')) return;
+        API.bizDelete('/api/v1/programs/' + id).done(function (resp) {
+          if (resp.code === 0) { loadList(); }
+          else if (isLayerOff(resp)) { alert(LAYER_TIP); }
+          else { alert(resp.msg || '删除失败'); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '删除失败'); });
+      });
+
+      // ---- 详情 ----
+      $('#tbody').on('click', '.p-view', function () {
+        goPage('program-detail-' + $(this).data('id'), '项目群详情', 'pages/program-detail.html?id=' + $(this).data('id'));
+      });
+
+      function goPage(key, title, page) {
+        if (window.self !== window.top && window.parent && window.parent.eaiselpNav) {
+          window.parent.eaiselpNav(key, title, page);
+        } else {
+          location.href = page.replace(/^pages\//, '');
+        }
+      }
+
+      // ---- 工具 ----
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+
+      // ---- 事件绑定 ----
+      $('#strategyFilter').on('change', function () { state.strategyId = $(this).val(); state.page = 1; loadList(); });
+      $('#statusFilter').on('change', function () { state.status = $(this).val(); state.page = 1; loadList(); });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+      $('#pageNumbers').on('click', '.page-num-btn', function () { state.page = parseInt($(this).data('page'), 10); loadList(); });
+
+      $.when(loadStrategies()).always(loadList);
+    });
+  </script>
+</body>
+</html>

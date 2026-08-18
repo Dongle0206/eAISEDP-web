@@ -31,22 +31,53 @@
       { key: 'model-routing', title: '模型路由', page: 'pages/model-routing.html' },
       { key: 'quota', title: '配额管理', page: 'pages/quota.html' },
       { key: 'audit-log', title: '审计日志', page: 'pages/audit-log.html' },
-      { key: 'monitor', title: '系统监控', page: 'pages/monitor.html' }
+      { key: 'monitor', title: '系统监控', page: 'pages/monitor.html' },
+      // 批5 三层贯通：L2/L3 管理入口（受租户分层开关控制，关闭时页面显示 43001/43002 友好提示）
+      { key: 'program-list', title: '项目群管理', page: 'pages/program-list.html' },
+      { key: 'project-list', title: '项目管理', page: 'pages/project-list.html' },
+      { key: 'principle-list', title: '架构原则', page: 'pages/principle-list.html' },
+      { key: 'gate-rule-list', title: '门禁规则', page: 'pages/gate-rule-list.html' },
+      { key: 'layer-settings', title: '分层设置', page: 'pages/layer-settings.html' }
     ],
-    project_manager: [],
+    project_manager: [
+      // 批5 三层贯通：项目经理可管理项目（L2 关闭时页面显示 43002 友好提示）
+      { key: 'project-list', title: '项目管理', page: 'pages/project-list.html' }
+    ],
     engineer: [],
     executive: [
-      { key: 'quota', title: '配额管理', page: 'pages/quota.html' }
+      { key: 'strategy-list', title: '战略管理', page: 'pages/strategy-list.html' },
+      { key: 'quota', title: '配额管理', page: 'pages/quota.html' },
+      { key: 'layer-settings', title: '分层设置', page: 'pages/layer-settings.html' }
     ]
   };
 
   const PLATFORM_ROLES = ['platform_admin', 'tenant_admin', 'project_manager', 'engineer', 'executive'];
 
   window.EAISELP_MENU = {
-    build: function (roleCodes) {
+    /**
+     * 按角色码构建菜单（AC-F10.1：菜单仅含启用层功能）。
+     *
+     * @param {string[]} roleCodes 当前用户角色码
+     * @param {{strategyEnabled?: boolean, programProjectEnabled?: boolean}} [layers]
+     *   租户分层开关；缺省/字段缺省视为开启（调用方请求失败时的兜底语义，两层全开）
+     */
+    build: function (roleCodes, layers) {
+      const strategyOn = layers ? layers.strategyEnabled !== false : true;
+      const programProjectOn = layers ? layers.programProjectEnabled !== false : true;
+      // 分层过滤：L3 关 → 隐藏战略入口；L2 关 → 隐藏项目群/项目管理入口。
+      // case-manage 属 COMMON（L1 恒开）不参与过滤；layer-settings 保留（管理员需进入重新开层）。
+      const layerHidden = function (m) {
+        if (!strategyOn && m.key === 'strategy-list') return true;
+        if (!programProjectOn && (m.key.indexOf('program-') === 0 || m.key.indexOf('project-') === 0)) return true;
+        return false;
+      };
       const seen = {};
       const menus = [];
-      const push = function (m) { if (!seen[m.key]) { seen[m.key] = true; menus.push(m); } };
+      const push = function (m) {
+        if (seen[m.key] || layerHidden(m)) return;
+        seen[m.key] = true;
+        menus.push(m);
+      };
       (roleCodes || []).forEach(function (code) {
         if (PLATFORM_ROLES.indexOf(code) === -1) return;
         (ROLE_MENUS[code] || []).forEach(push);

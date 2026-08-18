@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>分层设置 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; max-width:1000px; margin:0 auto; }
+    .section { background:#fff; border-radius:6px; padding:16px 20px; margin-bottom:16px; }
+    .section h6 { color:#1677ff; border-left:3px solid #1677ff; padding-left:8px; margin-bottom:14px; }
+    .layer-card { border:1px solid #e8e8e8; border-radius:8px; padding:16px 18px; }
+    .layer-card.on { border-color:#1677ff; background:#f0f7ff; }
+    .form-switch .form-check-input { cursor:pointer; }
+    .layer-title { font-size:16px; font-weight:700; }
+    .layer-sub { font-size:13px; color:#666; }
+    .scenario { border:1px dashed #d9d9d9; border-radius:8px; padding:12px 14px; height:100%; }
+    .scenario.current { border:1px solid #1677ff; background:#f0f7ff; }
+    .scenario .tag { font-size:12px; color:#1677ff; font-weight:700; }
+    .scenario.current .tag::after { content: '（当前）'; }
+    .scenario p { font-size:13px; color:#555; margin:6px 0 0; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+
+    <div id="tip" class="alert d-none" style="font-size:13px;"></div>
+
+    <!-- 开关区 -->
+    <div class="section">
+      <div class="d-flex align-items-center">
+        <h5 class="mb-0">分层开关设置</h5>
+        <button id="saveBtn" class="btn btn-primary btn-sm ms-3" disabled>保存设置</button>
+        <span class="text-muted ms-2" style="font-size:13px;">关闭仅隐藏入口（菜单 + API 业务码 43001/43002），数据全保留、随时可逆</span>
+      </div>
+      <div class="row g-3 mt-1">
+        <div class="col-md-6">
+          <div class="layer-card" id="cardL3">
+            <div class="d-flex align-items-center">
+              <div>
+                <div class="layer-title">L3 战略层</div>
+                <div class="layer-sub">战略目标管理（战略列表 / 战略看板）</div>
+              </div>
+              <div class="form-check form-switch ms-auto">
+                <input class="form-check-input" type="checkbox" role="switch" id="swStrategy" style="width:2.6em;height:1.4em;" disabled>
+              </div>
+            </div>
+            <div class="text-muted mt-2" style="font-size:12px;">关闭后：战略菜单入口隐藏，/api/v1/strategies/** 返回业务码 43001；已建战略数据保留。</div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="layer-card" id="cardL2">
+            <div class="d-flex align-items-center">
+              <div>
+                <div class="layer-title">L2 项目群 / 项目层</div>
+                <div class="layer-sub">项目群管理、项目管理、Case 挂接（一体开关）</div>
+              </div>
+              <div class="form-check form-switch ms-auto">
+                <input class="form-check-input" type="checkbox" role="switch" id="swProgram" style="width:2.6em;height:1.4em;" disabled>
+              </div>
+            </div>
+            <div class="text-muted mt-2" style="font-size:12px;">关闭后：项目群/项目菜单隐藏，/api/v1/programs、/api/v1/projects 返回 43002；已挂接 Case 保留可继续编排。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 三场景说明 -->
+    <div class="section">
+      <h6>三种接入场景（灵活接入，按企业成熟度选择）</h6>
+      <div class="row g-3">
+        <div class="col-md-4">
+          <div class="scenario" id="scA">
+            <div class="tag">场景A · 三层贯通</div>
+            <p>L3 + L2 全开。战略拆解为项目群，项目群派发项目，项目执行 Case，进度逐级上行汇总，KPI 双层均值穿透到看板。</p>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="scenario" id="scB">
+            <div class="tag">场景B · 从 L2 接入</div>
+            <p>关闭 L3，仅开 L2。暂无战略规划的客户从项目群直接接入：项目群可不挂战略（strategyId 可空），治理从项目群章程开始下行。</p>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="scenario" id="scC">
+            <div class="tag">场景C · 仅 L1 轻量接入</div>
+            <p>L3 + L2 全关。客户只看 COMMON 菜单（Case 管理 / 工作区 / 产物 / 审批），单项目独立使用平台，看不到 L2/L3 菜单。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section" id="loadingSection">
+      <div class="text-center text-muted py-4">加载中...</div>
+    </div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      function showTip(msg, type) {
+        const cls = type === 'success' ? 'alert-success' : type === 'danger' ? 'alert-danger' : 'alert-warning';
+        $('#tip').removeClass('alert-success alert-danger alert-warning d-none').addClass(cls).text(msg);
+        if (type === 'success') setTimeout(function () { $('#tip').addClass('d-none'); }, 4000);
+      }
+
+      function load() {
+        // 本端点不判分层开关（登录即可读）
+        API.bizGet('/api/v1/tenant/layers').done(function (resp) {
+          $('#loadingSection').addClass('d-none');
+          if (resp.code !== 0) {
+            showTip(resp.msg || '加载失败', 'danger');
+            return;
+          }
+          const d = resp.data || {};
+          $('#swStrategy').prop('checked', !!d.strategyEnabled).prop('disabled', false);
+          $('#swProgram').prop('checked', !!d.programProjectEnabled).prop('disabled', false);
+          $('#saveBtn').prop('disabled', false);
+          syncCards();
+        }).fail(function (xhr) {
+          $('#loadingSection').addClass('d-none');
+          showTip((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'), 'danger');
+        });
+      }
+
+      function syncCards() {
+        $('#cardL3').toggleClass('on', $('#swStrategy').prop('checked'));
+        $('#cardL2').toggleClass('on', $('#swProgram').prop('checked'));
+        const l3 = $('#swStrategy').prop('checked');
+        const l2 = $('#swProgram').prop('checked');
+        $('#scA').toggleClass('current', l3 && l2);
+        $('#scB').toggleClass('current', !l3 && l2);
+        $('#scC').toggleClass('current', !l3 && !l2);
+      }
+      $('#swStrategy,#swProgram').on('change', syncCards);
+
+      $('#saveBtn').on('click', function () {
+        const body = {
+          strategyEnabled: $('#swStrategy').prop('checked'),
+          programProjectEnabled: $('#swProgram').prop('checked')
+        };
+        const $btn = $(this).prop('disabled', true).text('保存中...');
+        API.bizPut('/api/v1/tenant/layers', body).done(function (resp) {
+          if (resp.code === 0) {
+            showTip('保存成功。开关即时生效：关闭的层入口将隐藏，重新打开后数据原样恢复。', 'success');
+            const d = resp.data || {};
+            $('#swStrategy').prop('checked', !!d.strategyEnabled);
+            $('#swProgram').prop('checked', !!d.programProjectEnabled);
+            syncCards();
+          } else if (resp.code === 403) {
+            showTip('无权限修改分层开关（需 platform_admin / tenant_admin）', 'danger');
+          } else {
+            showTip(resp.msg || '保存失败', 'danger');
+          }
+        }).fail(function (xhr) {
+          const r = xhr.responseJSON;
+          if (xhr.status === 403 || (r && r.code === 403)) {
+            showTip('无权限修改分层开关（需 platform_admin / tenant_admin）', 'danger');
+          } else {
+            showTip((r && r.msg) || ('保存失败（' + xhr.status + '）'), 'danger');
+          }
+        }).always(function () { $btn.prop('disabled', false).text('保存设置'); });
+      });
+
+      load();
+    });
+  </script>
+</body>
+</html>

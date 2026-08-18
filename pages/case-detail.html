@@ -59,6 +59,13 @@
           <label class="form-label">描述</label>
           <textarea id="newDesc" class="form-control" rows="5" maxlength="2000" placeholder="补充背景、范围、验收标准等"></textarea>
         </div>
+        <div class="mb-3" id="newProjectRow">
+          <label class="form-label">关联项目（可选）</label>
+          <select id="newProject" class="form-select">
+            <option value="">（不关联项目）</option>
+          </select>
+          <small class="text-muted">挂接后 Case 完成情况自动计入项目进度；项目清单需项目群/项目层已启用。</small>
+        </div>
         <button type="submit" id="createBtn" class="btn btn-primary">创建并进入详情</button>
         <button type="button" id="cancelCreateBtn" class="btn btn-outline-secondary">返回列表</button>
       </form>
@@ -73,6 +80,7 @@
         <div class="info-grid">
           <div><span class="label">编号：</span><span id="caseCode"></span></div>
           <div><span class="label">状态：</span><span id="caseStatus"></span></div>
+          <div><span class="label">所属项目：</span><span id="caseProject"></span></div>
           <div><span class="label">创建时间：</span><span id="caseCreatedAt"></span></div>
           <div><span class="label">创建人：</span><span id="caseCreator"></span></div>
         </div>
@@ -184,24 +192,70 @@
 
       $('#backListBtn,#cancelCreateBtn').on('click', function () { goList(); });
 
+      // ---- 项目 ID→名称 映射（缓存；L2 未启用 43002 / 无权限时降级为 null，显示 #id）----
+      let projectMapPromise = null;
+      function ensureProjectMap() {
+        if (!projectMapPromise) {
+          projectMapPromise = API.bizGet('/api/v1/projects?page=1&size=500').then(function (resp) {
+            if (resp.code === 0 && resp.data) {
+              const map = {};
+              (resp.data.records || resp.data.list || []).forEach(function (p) { map[p.id] = p.name; });
+              return map;
+            }
+            return null;
+          }, function () { return null; });
+        }
+        return projectMapPromise;
+      }
+      function renderProjectCell(projectId) {
+        const $el = $('#caseProject');
+        if (projectId == null || projectId === '') { $el.html('<span class="text-muted">未关联</span>'); return; }
+        $el.text('#' + projectId);
+        ensureProjectMap().done(function (map) {
+          if (map && map[projectId]) $el.text(map[projectId]);
+        });
+      }
+
       // ---- 新建 Case ----
       function bindCreate() {
+        // 关联项目下拉（L2 未启用/无权限时隐藏该行，不阻塞 Case 创建）
+        API.bizGet('/api/v1/projects?page=1&size=500').done(function (resp) {
+          if (resp.code !== 0 || !resp.data) {
+            $('#newProjectRow').addClass('d-none');
+            return;
+          }
+          const list = resp.data.records || resp.data.list || [];
+          if (!list.length) { $('#newProjectRow').addClass('d-none'); return; }
+          const $sel = $('#newProject');
+          list.forEach(function (p) {
+            $sel.append('<option value="' + escapeAttr(p.id) + '">#' + escapeHtml(p.id) + ' ' + escapeHtml(p.name || '') + '</option>');
+          });
+        }).fail(function () { $('#newProjectRow').addClass('d-none'); });
+
         $('#createFormInner').on('submit', function (e) {
           e.preventDefault();
           const title = $('#newTitle').val().trim();
           const desc = $('#newDesc').val().trim();
           if (!title) { showCreateTip('请输入标题', 'danger'); return; }
+          const projectId = $('#newProject').val();
           const $btn = $('#createBtn').prop('disabled', true).text('创建中...');
           // POST /api/v1/cases {title, description}
           bizPost('/api/v1/cases', { title: title, description: desc })
             .done(function (resp) {
               if (resp.code === 0) {
                 const newId = (resp.data && (resp.data.caseId || resp.data.id)) || '';
-                showCreateTip('创建成功，正在跳转详情...', 'success');
-                // 跳详情页（刷新 caseId 参数）
-                setTimeout(function () {
-                  location.href = 'case-detail.html?caseId=' + encodeURIComponent(newId);
-                }, 400);
+                // 可选：创建后立即挂接项目（POST /api/v1/projects/{id}/cases/{caseId}）
+                if (projectId && newId) {
+                  API.bizPost('/api/v1/projects/' + encodeURIComponent(projectId) + '/cases/' + encodeURIComponent(newId), {})
+                    .done(function (lr) {
+                      if (lr.code !== 0) showCreateTip('Case 已创建，但关联项目失败：' + (lr.msg || ''), 'danger');
+                    })
+                    .fail(function () { showCreateTip('Case 已创建，但关联项目失败', 'danger'); })
+                    .always(function () { gotoDetail(newId); });
+                } else {
+                  showCreateTip('创建成功，正在跳转详情...', 'success');
+                  setTimeout(function () { gotoDetail(newId); }, 400);
+                }
               } else {
                 showCreateTip(resp.msg || '创建失败', 'danger');
               }
@@ -211,6 +265,11 @@
             })
             .always(function () { $btn.prop('disabled', false).text('创建并进入详情'); });
         });
+        function gotoDetail(newId) {
+          setTimeout(function () {
+            location.href = 'case-detail.html?caseId=' + encodeURIComponent(newId);
+          }, 300);
+        }
       }
       function showCreateTip(msg, type) {
         $('#deriveTip').length; // noop
@@ -234,6 +293,7 @@
           $('#caseCreatedAt').text(fmtTime(c.createdAt || c.createTime));
           $('#caseCreator').text(c.createBy || c.creator || c.createdBy || '-');
           $('#caseDesc').text(c.requirement || c.description || c.desc || '-');
+          renderProjectCell(c.projectId);
           const st = c.status || 'unknown';
           $('#caseStatus').html('<span class="status-badge ' + (STATUS_CLASS[st] || 'status-unknown') + '">' + (STATUS_TEXT[st] || st) + '</span>');
           renderTransitButtons(st, c.caseId);
@@ -331,7 +391,7 @@
         var caseId = $(this).data('case');
         if (!confirm('确认流转到「' + (STATUS_TEXT[to] || to) + '」？')) return;
         API.bizPost('/api/v1/cases/' + encodeURIComponent(caseId) + '/transit',
-            JSON.stringify({ targetStatus: to }))
+            { targetStatus: to })
           .done(function (resp) {
             if (resp.code === 0) {
               loadDetail(caseId);

@@ -53,13 +53,14 @@
           <tr>
             <th style="width:140px;">编号</th>
             <th>标题</th>
+            <th style="width:150px;">所属项目</th>
             <th style="width:110px;">状态</th>
             <th style="width:180px;">创建时间</th>
             <th style="width:110px;">操作</th>
           </tr>
         </thead>
         <tbody id="caseTbody">
-          <tr class="empty-row"><td colspan="5">加载中...</td></tr>
+          <tr class="empty-row"><td colspan="6">加载中...</td></tr>
         </tbody>
       </table>
     </div>
@@ -95,34 +96,60 @@
 
       const state = { page: 1, size: 10, status: '', total: 0 };
 
-      // 调 GET /api/v1/cases?page=&size=&status=
+      // 项目 ID→名称 映射（首次加载后缓存；L2 未启用 43002 / 无权限时降级为 null，仅显示 #id）
+      let projectMapPromise = null;
+      function ensureProjectMap() {
+        if (!projectMapPromise) {
+          projectMapPromise = API.bizGet('/api/v1/projects?page=1&size=500').then(function (resp) {
+            if (resp.code === 0 && resp.data) {
+              const map = {};
+              (resp.data.records || resp.data.list || []).forEach(function (p) { map[p.id] = p.name; });
+              return map;
+            }
+            return null; // 项目层未启用或无权限：不阻塞 Case 列表，降级显示 #id
+          }, function () { return null; });
+        }
+        return projectMapPromise;
+      }
+      function projectCell(projectId, map) {
+        if (projectId == null || projectId === '') return '<span class="text-muted">-</span>';
+        const name = map ? map[projectId] : null;
+        if (name) return escapeHtml(name);
+        return '#' + escapeHtml(projectId); // 映射不可用时兜底显示项目 ID
+      }
+
+      // 调 GET /api/v1/cases?page=&size=&status=（项目名映射并行加载）
       function loadList() {
         const params = new URLSearchParams();
         params.set('page', state.page);
         params.set('size', state.size);
         if (state.status) params.set('status', state.status);
-        $('#caseTbody').html('<tr class="empty-row"><td colspan="5">加载中...</td></tr>');
-        API.bizGet('/api/v1/cases?' + params.toString()).done(function (resp) {
-          if (resp.code !== 0) { renderError(resp.msg || '加载失败'); return; }
-          const data = resp.data || {};
-          const list = data.list || data.items || data.records || [];
-          state.total = data.total != null ? data.total : list.length;
-          renderTable(list);
-          renderPager();
-        }).fail(function (xhr) {
-          renderError((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'));
-        });
+        $('#caseTbody').html('<tr class="empty-row"><td colspan="6">加载中...</td></tr>');
+        $.when(API.bizGet('/api/v1/cases?' + params.toString()), ensureProjectMap())
+          .done(function (casesArgs, mapArgs) {
+            const resp = casesArgs[0];
+            const projectMap = $.isArray(mapArgs) ? mapArgs[0] : mapArgs;
+            if (resp.code !== 0) { renderError(resp.msg || '加载失败'); return; }
+            const data = resp.data || {};
+            const list = data.list || data.items || data.records || [];
+            state.total = data.total != null ? data.total : list.length;
+            renderTable(list, projectMap);
+            renderPager();
+          })
+          .fail(function (xhr) {
+            renderError((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'));
+          });
       }
 
       function renderError(msg) {
-        $('#caseTbody').html('<tr class="empty-row"><td colspan="5">' + escapeHtml(msg) + '</td></tr>');
+        $('#caseTbody').html('<tr class="empty-row"><td colspan="6">' + escapeHtml(msg) + '</td></tr>');
         $('#pageInfo').text('');
         $('#pageNumbers').html('');
       }
 
-      function renderTable(list) {
+      function renderTable(list, projectMap) {
         if (!list.length) {
-          $('#caseTbody').html('<tr class="empty-row"><td colspan="5">暂无 Case，点击右上角"新建 Case"创建</td></tr>');
+          $('#caseTbody').html('<tr class="empty-row"><td colspan="6">暂无 Case，点击右上角"新建 Case"创建</td></tr>');
           return;
         }
         const rows = list.map(function (c) {
@@ -132,6 +159,7 @@
           return '<tr>'
             + '<td class="case-code">' + escapeHtml(c.caseId || c.caseCode || c.code) + '</td>'
             + '<td>' + escapeHtml(c.title || '') + '</td>'
+            + '<td>' + projectCell(c.projectId, projectMap) + '</td>'
             + '<td><span class="status-badge ' + cls + '">' + txt + '</span></td>'
             + '<td>' + escapeHtml(fmtTime(c.createdAt || c.createTime)) + '</td>'
             + '<td><button class="btn btn-sm btn-outline-primary view-btn" data-id="' + escapeHtml(c.caseId) + '">查看</button></td>'

@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>战略管理 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .status-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+    .st-draft { background:#f5f5f5; color:#999; }
+    .st-active { background:#e6f4ff; color:#1677ff; }
+    .st-achieved { background:#f6ffed; color:#52c41a; }
+    .st-archived { background:#f0f0f0; color:#888; }
+    .st-unknown { background:#f5f5f5; color:#999; }
+    .kpi-chip { display:inline-block; background:#f9f0ff; color:#722ed1; border-radius:10px; padding:1px 8px; font-size:12px; margin:1px 4px 1px 0; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .kpi-editor input { font-size:13px; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">战略目标（L3）</h5>
+      <span class="text-muted" style="font-size:13px;">战略 → 项目群 → 项目 三层贯通顶层</span>
+      <div class="spacer"></div>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">状态：</span>
+        <select id="statusFilter" class="form-select form-select-sm" style="width:auto;">
+          <option value="all">全部</option>
+          <option value="draft">草稿</option>
+          <option value="active">进行中</option>
+          <option value="achieved">已达成</option>
+          <option value="archived">已归档</option>
+        </select>
+      </label>
+      <button id="newBtn" class="btn btn-primary btn-sm">+ 新建战略</button>
+    </div>
+
+    <!-- 分层开关关闭提示（43001） -->
+    <div id="layerTip" class="alert alert-warning d-none" style="font-size:13px;"></div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:90px;">编号</th>
+            <th>标题</th>
+            <th style="width:80px;">时间维度</th>
+            <th style="width:110px;">负责人</th>
+            <th style="width:230px;">KPI</th>
+            <th style="width:90px;">状态</th>
+            <th style="width:150px;">创建时间</th>
+            <th style="width:250px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="empty-row"><td colspan="8">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pager">
+      <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+      <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+      <span id="pageNumbers" style="font-size:13px;"></span>
+      <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+      <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="10">10/页</option>
+        <option value="20">20/页</option>
+        <option value="50">50/页</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 新建/编辑弹窗 -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">新建战略</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="mb-2"><label class="form-label small">标题 <span class="text-danger">*</span></label><input id="fTitle" class="form-control form-control-sm" maxlength="200" placeholder="如：智能化转型"></div>
+        <div class="mb-2"><label class="form-label small">目标描述</label><textarea id="fDesc" class="form-control form-control-sm" rows="3" maxlength="2000" placeholder="背景 / 价值 / 衡量标准"></textarea></div>
+        <div class="row">
+          <div class="col-4 mb-2"><label class="form-label small">时间维度</label>
+            <select id="fHorizon" class="form-select form-select-sm">
+              <option value="1q">季度（1q）</option>
+              <option value="1y">一年（1y）</option>
+              <option value="3y">三年（3y）</option>
+            </select>
+          </div>
+          <div class="col-4 mb-2"><label class="form-label small">负责人</label><input id="fOwner" class="form-control form-control-sm" placeholder="ceo@corp"></div>
+          <div class="col-4 mb-2 d-flex align-items-end"><span class="text-muted" style="font-size:12px;">创建后为草稿态，需"激活"进入执行</span></div>
+        </div>
+        <div class="mb-1"><label class="form-label small mb-1">KPI 指标（当前值人工维护）</label></div>
+        <div class="kpi-editor">
+          <table class="table table-sm table-bordered mb-1">
+            <thead><tr><th>指标名</th><th style="width:110px;">目标值</th><th style="width:110px;">当前值</th><th style="width:90px;">单位</th><th style="width:40px;"></th></tr></thead>
+            <tbody id="kpiTbody"></tbody>
+          </table>
+          <button type="button" id="kpiAddBtn" class="btn btn-outline-secondary btn-sm">+ 添加 KPI</button>
+        </div>
+        <div id="kpiLockTip" class="text-muted d-none" style="font-size:12px;">该战略已达成/归档，仅 KPI 可编辑</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const STATUS_TEXT = { draft: '草稿', active: '进行中', achieved: '已达成', archived: '已归档' };
+      const STATUS_CLASS = { draft: 'st-draft', active: 'st-active', achieved: 'st-achieved', archived: 'st-archived' };
+      const HORIZON_TEXT = { '1q': '季度', '1y': '一年', '3y': '三年' };
+      const TRANSITS = {
+        draft: [{ to: 'active', label: '激活' }],
+        active: [{ to: 'achieved', label: '达成' }, { to: 'archived', label: '归档' }],
+        achieved: [{ to: 'archived', label: '归档' }],
+        archived: []
+      };
+      const LAYER_TIP = '该层未启用，请联系管理员在分层设置中开启';
+
+      const state = { page: 1, size: 10, status: 'all', total: 0 };
+
+      function loadList() {
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        params.set('status', state.status || 'all');
+        $('#tbody').html('<tr class="empty-row"><td colspan="8">加载中...</td></tr>');
+        API.bizGet('/api/v1/strategies?' + params.toString()).done(function (resp) {
+          if (isLayerOff(resp)) { renderLayerOff(); return; }
+          if (resp.code !== 0) { renderError(resp.msg || '加载失败'); return; }
+          const data = resp.data || {};
+          const list = data.records || data.list || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          renderError((xhr.responseJSON && xhr.responseJSON.msg) || ('请求失败（' + xhr.status + '）'));
+        });
+      }
+
+      function isLayerOff(resp) { return resp && (resp.code === 43001 || resp.code === 43002); }
+      function renderLayerOff() {
+        $('#layerTip').removeClass('d-none').text('⚠ ' + LAYER_TIP);
+        $('#tbody').html('<tr class="empty-row"><td colspan="8">战略层未启用</td></tr>');
+        $('#pageInfo,#pageNumbers').html('');
+      }
+
+      function renderError(msg) {
+        $('#tbody').html('<tr class="empty-row"><td colspan="8">' + escapeHtml(msg) + '</td></tr>');
+        $('#pageInfo,#pageNumbers').html('');
+      }
+
+      function parseKpi(kpi) {
+        if (!kpi) return [];
+        try { const arr = JSON.parse(kpi); return Array.isArray(arr) ? arr : []; } catch (e) { return []; }
+      }
+
+      function renderTable(list) {
+        $('#layerTip').addClass('d-none');
+        if (!list.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="8">暂无战略，点击右上角"新建战略"创建</td></tr>');
+          return;
+        }
+        const rows = list.map(function (s) {
+          const st = s.status || 'unknown';
+          const kpis = parseKpi(s.kpi);
+          let kpiHtml = '<span class="text-muted">-</span>';
+          if (kpis.length) {
+            kpiHtml = kpis.slice(0, 2).map(function (k) {
+              const cur = k.current != null ? k.current : '-';
+              const tgt = k.target != null ? k.target : '-';
+              return '<span class="kpi-chip" title="' + escapeAttr(k.name || '') + '：' + escapeAttr(cur + ' / ' + tgt) + (k.unit ? '（' + escapeAttr(k.unit) + '）' : '') + '">' + escapeHtml(k.name || '-') + ' ' + escapeHtml(String(cur)) + ' / ' + escapeHtml(String(tgt)) + '</span>';
+            }).join('');
+            if (kpis.length > 2) kpiHtml += '<span class="text-muted" style="font-size:12px;">+' + (kpis.length - 2) + ' 项</span>';
+          }
+          const btns = ['<button class="btn btn-sm btn-outline-primary s-view" data-id="' + s.id + '">看板</button>',
+            '<button class="btn btn-sm btn-outline-secondary s-edit" data-id="' + s.id + '">编辑</button>'];
+          (TRANSITS[st] || []).forEach(function (t) {
+            btns.push('<button class="btn btn-sm btn-outline-success s-transit" data-id="' + s.id + '" data-to="' + t.to + '">' + t.label + '</button>');
+          });
+          btns.push('<button class="btn btn-sm btn-outline-danger s-del" data-id="' + s.id + '">删除</button>');
+          return '<tr>'
+            + '<td>#' + escapeHtml(s.id) + '</td>'
+            + '<td><strong>' + escapeHtml(s.title || '') + '</strong></td>'
+            + '<td>' + (HORIZON_TEXT[s.horizon] || escapeHtml(s.horizon || '-')) + '</td>'
+            + '<td>' + escapeHtml(s.owner || '-') + '</td>'
+            + '<td>' + kpiHtml + '</td>'
+            + '<td><span class="status-badge ' + (STATUS_CLASS[st] || 'st-unknown') + '">' + (STATUS_TEXT[st] || st) + '</span></td>'
+            + '<td>' + escapeHtml(fmtTime(s.createTime)) + '</td>'
+            + '<td style="white-space:nowrap;">' + btns.join(' ') + '</td>'
+            + '</tr>';
+        });
+        $('#tbody').html(rows.join(''));
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        const cur = state.page;
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + cur + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', cur <= 1);
+        $('#nextBtn').prop('disabled', cur >= totalPages);
+        const nums = buildPageNums(cur, totalPages);
+        const html = nums.map(function (n) {
+          if (n === '...') return '<span class="mx-1 text-muted">…</span>';
+          const active = n === cur ? 'btn-primary' : 'btn-outline-secondary';
+          return '<button class="btn btn-sm ' + active + ' page-num-btn" data-page="' + n + '">' + n + '</button>';
+        }).join(' ');
+        $('#pageNumbers').html(html);
+      }
+      function buildPageNums(cur, total) {
+        const arr = [];
+        const push = function (n) { if (arr.indexOf(n) === -1) arr.push(n); };
+        push(1);
+        if (cur - 1 > 2) arr.push('...');
+        for (let n = cur - 1; n <= cur + 1; n++) { if (n > 1 && n < total) push(n); }
+        if (cur + 1 < total - 1) arr.push('...');
+        if (total > 1) push(total);
+        return arr;
+      }
+
+      // ---- 新建 / 编辑弹窗 ----
+      function addKpiRow(item) {
+        item = item || {};
+        $('#kpiTbody').append('<tr>'
+          + '<td><input class="form-control form-control-sm k-name" value="' + escapeAttr(item.name || '') + '" placeholder="平台化收入占比"></td>'
+          + '<td><input class="form-control form-control-sm k-target" value="' + escapeAttr(item.target != null ? item.target : '') + '" placeholder="10%"></td>'
+          + '<td><input class="form-control form-control-sm k-current" value="' + escapeAttr(item.current != null ? item.current : '') + '" placeholder="0%"></td>'
+          + '<td><input class="form-control form-control-sm k-unit" value="' + escapeAttr(item.unit || '') + '" placeholder="占比"></td>'
+          + '<td><button type="button" class="btn btn-sm btn-outline-danger k-del">×</button></td>'
+          + '</tr>');
+      }
+      function collectKpi() {
+        const arr = [];
+        $('#kpiTbody tr').each(function () {
+          const $tr = $(this);
+          const name = $tr.find('.k-name').val().trim();
+          if (!name) return;
+          arr.push({
+            name: name,
+            target: $tr.find('.k-target').val().trim() || null,
+            current: $tr.find('.k-current').val().trim() || null,
+            unit: $tr.find('.k-unit').val().trim() || null
+          });
+        });
+        return arr;
+      }
+      function setKpiLock(locked) {
+        $('#fTitle,#fDesc,#fHorizon,#fOwner').prop('disabled', locked);
+        $('#kpiLockTip').toggleClass('d-none', !locked);
+      }
+
+      $('#kpiAddBtn').on('click', function () { addKpiRow(); });
+      $('#kpiTbody').on('click', '.k-del', function () { $(this).closest('tr').remove(); });
+
+      $('#newBtn').on('click', function () {
+        $('#fId').val('');
+        $('#fTitle').val(''); $('#fDesc').val(''); $('#fHorizon').val('1q'); $('#fOwner').val('');
+        $('#kpiTbody').empty(); addKpiRow();
+        setKpiLock(false);
+        $('#modalTitle').text('新建战略');
+        new bootstrap.Modal('#editModal').show();
+      });
+
+      $('#tbody').on('click', '.s-edit', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/strategies/' + id).done(function (resp) {
+          if (isLayerOff(resp)) { alert(LAYER_TIP); return; }
+          if (resp.code !== 0) { alert(resp.msg || '加载失败'); return; }
+          const s = resp.data || {};
+          $('#fId').val(s.id);
+          $('#fTitle').val(s.title || '');
+          $('#fDesc').val(s.description || '');
+          $('#fHorizon').val(s.horizon || '1q');
+          $('#fOwner').val(s.owner || '');
+          $('#kpiTbody').empty();
+          const kpis = parseKpi(s.kpi);
+          if (kpis.length) kpis.forEach(addKpiRow); else addKpiRow();
+          // achieved/archived 后仅 KPI 可改（AC-F1.2）
+          setKpiLock(s.status === 'achieved' || s.status === 'archived');
+          $('#modalTitle').text('编辑战略 #' + s.id);
+          new bootstrap.Modal('#editModal').show();
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '请求失败'); });
+      });
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const locked = $('#fTitle').prop('disabled');
+        const body = {
+          title: locked ? null : $('#fTitle').val().trim(),
+          description: locked ? null : $('#fDesc').val().trim(),
+          horizon: locked ? null : $('#fHorizon').val(),
+          owner: locked ? null : $('#fOwner').val().trim(),
+          kpi: collectKpi()
+        };
+        if (!locked && !body.title) { alert('标题不能为空'); return; }
+        const $btn = $(this).prop('disabled', true);
+        const req = id ? API.bizPut('/api/v1/strategies/' + id, body) : API.bizPost('/api/v1/strategies', body);
+        req.done(function (resp) {
+          if (resp.code === 0) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadList();
+          } else if (isLayerOff(resp)) {
+            alert(LAYER_TIP);
+          } else {
+            alert(resp.msg || '保存失败');
+          }
+        }).fail(function (xhr) {
+          alert((xhr.responseJSON && xhr.responseJSON.msg) || '保存失败');
+        }).always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 生命周期流转 ----
+      $('#tbody').on('click', '.s-transit', function () {
+        const id = $(this).data('id');
+        const to = $(this).data('to');
+        if (!confirm('确认将战略流转为「' + (STATUS_TEXT[to] || to) + '」？')) return;
+        API.bizPost('/api/v1/strategies/' + id + '/transit', { status: to }).done(function (resp) {
+          if (resp.code === 0) { loadList(); }
+          else if (isLayerOff(resp)) { alert(LAYER_TIP); }
+          else { alert(resp.msg || '流转失败'); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '流转失败'); });
+      });
+
+      // ---- 删除（存在关联项目群 → 后端 400 拒绝）----
+      $('#tbody').on('click', '.s-del', function () {
+        const id = $(this).data('id');
+        if (!confirm('确认删除战略 #' + id + '？删除后不可恢复。')) return;
+        API.bizDelete('/api/v1/strategies/' + id).done(function (resp) {
+          if (resp.code === 0) { loadList(); }
+          else if (isLayerOff(resp)) { alert(LAYER_TIP); }
+          else { alert(resp.msg || '删除失败'); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '删除失败'); });
+      });
+
+      // ---- 看板入口 ----
+      $('#tbody').on('click', '.s-view', function () {
+        goPage('strategy-board-' + $(this).data('id'), '战略看板', 'pages/strategy-board.html?id=' + $(this).data('id'));
+      });
+
+      function goPage(key, title, page) {
+        if (window.self !== window.top && window.parent && window.parent.eaiselpNav) {
+          window.parent.eaiselpNav(key, title, page);
+        } else {
+          location.href = page.replace(/^pages\//, '');
+        }
+      }
+
+      // ---- 工具 ----
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function escapeAttr(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function fmtTime(t) {
+        if (!t) return '-';
+        const d = new Date(typeof t === 'string' ? t.replace('T', ' ') : t);
+        if (isNaN(d.getTime())) return String(t);
+        const p = function (n) { return n < 10 ? '0' + n : n; };
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+          + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+      }
+
+      // ---- 事件绑定 ----
+      $('#statusFilter').on('change', function () { state.status = $(this).val(); state.page = 1; loadList(); });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+      $('#pageNumbers').on('click', '.page-num-btn', function () { state.page = parseInt($(this).data('page'), 10); loadList(); });
+
+      loadList();
+    });
+  </script>
+</body>
+</html>
