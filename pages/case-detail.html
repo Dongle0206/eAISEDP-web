@@ -88,6 +88,8 @@
         <div class="mt-2" id="lifecycleBar" style="display:flex;gap:0;align-items:center;overflow-x:auto;padding:4px 0;"></div>
         <div class="mt-2"><span class="label">描述：</span><span id="caseDesc" style="white-space:pre-wrap;"></span></div>
         <div class="mt-2 d-flex gap-2 align-items-center" id="transitArea"></div>
+        <!-- D4 挂接到项目（L2 开启且有可挂接项目时由 JS 渲染下拉；L2 关闭不渲染，AC-D4.2） -->
+        <div class="mt-2 d-flex gap-2 align-items-center flex-wrap" id="linkProjectArea"></div>
         <button class="btn btn-sm btn-outline-secondary mt-2" id="backListBtn">← 返回列表</button>
       </div>
 
@@ -188,6 +190,7 @@
         loadRoleOptions();
         bindOrchestrate(caseId);
         bindDerive(caseId);
+        initLinkProject(caseId);
       }
 
       $('#backListBtn,#cancelCreateBtn').on('click', function () { goList(); });
@@ -213,6 +216,49 @@
         $el.text('#' + projectId);
         ensureProjectMap().done(function (map) {
           if (map && map[projectId]) $el.text(map[projectId]);
+        });
+      }
+
+      // ---- D4 挂接到项目（L2 关闭=programProjectEnabled false 时不渲染，AC-D4.2）----
+      // L2 开启且存在可挂接项目 → 渲染下拉+挂接按钮；选中确认调 POST /api/v1/projects/{id}/cases/{caseId}，
+      // 成功后清项目名缓存并 loadDetail 刷新"所属项目"（AC-D4.1）。开关/项目列表请求失败 → 静默不渲染。
+      function initLinkProject(id) {
+        API.bizGet('/api/v1/tenant/layers').done(function (resp) {
+          var layers = (resp && resp.code === 0 && resp.data) ? resp.data : {};
+          if (layers.programProjectEnabled === false) return;   // AC-D4.2：L2 关闭不渲染挂接控件
+          API.bizGet('/api/v1/projects?page=1&size=500').done(function (pr) {
+            if (pr.code !== 0 || !pr.data) return;
+            var list = pr.data.records || pr.data.list || [];
+            if (!list.length) return;
+            var opts = list.map(function (p) {
+              return '<option value="' + escapeAttr(p.id) + '">#' + escapeHtml(p.id) + ' ' + escapeHtml(p.name || '') + '</option>';
+            }).join('');
+            var $area = $('#linkProjectArea');
+            $area.append('<span class="text-muted small">挂接到项目：</span>'
+              + '<select id="linkProjectSel" class="form-select form-select-sm" style="width:auto;">' + opts + '</select>'
+              + '<button id="linkProjectBtn" class="btn btn-sm btn-outline-primary">挂接</button>');
+            $('#linkProjectBtn').on('click', function () {
+              var pid = $('#linkProjectSel').val();
+              if (!pid) return;
+              if (!confirm('确认挂接到所选项目？挂接后 Case 完成情况将自动计入项目进度。')) return;
+              var $btn = $(this).prop('disabled', true).text('挂接中...');
+              API.bizPost('/api/v1/projects/' + encodeURIComponent(pid) + '/cases/' + encodeURIComponent(id), {})
+                .done(function (lr) {
+                  if (lr.code === 0) {
+                    alert('挂接成功，Case 已关联所选项目。');
+                    projectMapPromise = null;   // 清项目名缓存，重取后展示新挂接项目名
+                    $area.empty();
+                    loadDetail(id);
+                  } else {
+                    alert(lr.msg || '挂接失败');
+                  }
+                })
+                .fail(function (xhr) {
+                  alert((xhr.responseJSON && xhr.responseJSON.msg) || ('挂接失败（' + xhr.status + '）'));
+                })
+                .always(function () { $btn.prop('disabled', false).text('挂接'); });
+            });
+          });
         });
       }
 
@@ -530,6 +576,8 @@
           html += '<div class="alert alert-warning py-2 mb-2" style="font-size:13px;">🔒 ' + escapeHtml(state.approvalMessage);
           html += ' <a href="checkpoint.html?caseId=' + escapeAttr(state.caseId || '') + '" target="_blank" style="font-weight:600;">去审批 →</a></div>';
         }
+        // D5 注入清单卡片（编排过程透明可审计：本次编排注入每个角色上下文的架构原则 code 清单）
+        html += renderInjectedPrinciples(state.injectedPrinciplesJson);
         html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
         steps.forEach(function (s, i) {
           html += '<div style="text-align:center;min-width:100px;">';
@@ -564,6 +612,31 @@
         html += '</div>';
         $('#orchestrateSteps').html(html);
         $('#orchestrateProgress').removeClass('d-none');
+      }
+
+      // D5 注入清单卡片：解析 injectedPrinciplesJson（原则 code 数组的 JSON 串），
+      // 有则展示 🛡 原则 chips，空/解析失败显示"未注入"占位（AC-D5.2：不空白不报错）
+      function renderInjectedPrinciples(json) {
+        var codes = [];
+        if (json) {
+          try {
+            var parsed = JSON.parse(json);
+            if (Array.isArray(parsed)) {
+              codes = parsed.filter(function (c) { return c != null && c !== ''; });
+            }
+          } catch (e) { /* 兼容异常值：按未注入占位展示 */ }
+        }
+        if (!codes.length) {
+          return '<div style="margin-bottom:8px;font-size:12px;color:#999;border:1px dashed #e8e8e8;border-radius:4px;padding:6px 10px;">'
+            + '🛡 注入清单：未注入（Case 未关联项目，或项目未启用任何架构原则）</div>';
+        }
+        var chips = codes.map(function (c) {
+          return '<span style="display:inline-block;margin:2px 4px 2px 0;padding:1px 8px;border-radius:10px;'
+            + 'font-size:12px;background:#f9f0ff;color:#722ed1;border:1px solid #d3adf7;">🛡 '
+            + escapeHtml(String(c)) + '</span>';
+        }).join('');
+        return '<div style="margin-bottom:8px;font-size:12px;color:#555;border:1px solid #f0f0f0;border-radius:4px;padding:6px 10px;">'
+          + '🛡 注入清单（已注入每个角色上下文的架构原则）：' + chips + '</div>';
       }
 
       function showOrchestrateTip(msg, type) {

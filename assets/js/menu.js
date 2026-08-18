@@ -46,6 +46,8 @@
     engineer: [],
     executive: [
       { key: 'strategy-list', title: '战略管理', page: 'pages/strategy-list.html' },
+      // D7 高管一屏直达：战略看板入口（复用 strategy-* 分层过滤，L3 关闭随 strategy-list 一并隐藏）
+      { key: 'strategy-board', title: '战略看板', page: 'pages/strategy-board.html' },
       { key: 'quota', title: '配额管理', page: 'pages/quota.html' },
       { key: 'layer-settings', title: '分层设置', page: 'pages/layer-settings.html' }
     ]
@@ -64,10 +66,11 @@
     build: function (roleCodes, layers) {
       const strategyOn = layers ? layers.strategyEnabled !== false : true;
       const programProjectOn = layers ? layers.programProjectEnabled !== false : true;
-      // 分层过滤：L3 关 → 隐藏战略入口；L2 关 → 隐藏项目群/项目管理入口。
+      // 分层过滤：L3 关 → 隐藏战略入口（strategy- 前缀：strategy-list 与 D7 新增 strategy-board 一并隐藏）；
+      // L2 关 → 隐藏项目群/项目管理入口。
       // case-manage 属 COMMON（L1 恒开）不参与过滤；layer-settings 保留（管理员需进入重新开层）。
       const layerHidden = function (m) {
-        if (!strategyOn && m.key === 'strategy-list') return true;
+        if (!strategyOn && String(m.key).indexOf('strategy-') === 0) return true;
         if (!programProjectOn && (m.key.indexOf('program-') === 0 || m.key.indexOf('project-') === 0)) return true;
         return false;
       };
