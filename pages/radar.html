@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>技术雷达 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .toolbar .ctl { display:flex; align-items:center; gap:6px; font-size:13px; color:#666; }
+    /* 纯 CSS 四象限宫格（禁外部 CDN） */
+    .radar-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    @media (max-width:768px) { .radar-grid { grid-template-columns:1fr; } }
+    .quadrant { background:#fff; border-radius:8px; border-top:4px solid #1677ff; min-height:160px; box-shadow:0 1px 2px rgba(0,0,0,.05); }
+    .q-techniques { border-top-color:#1677ff; }
+    .q-tools { border-top-color:#08979c; }
+    .q-platforms { border-top-color:#722ed1; }
+    .q-languages { border-top-color:#fa8c16; }
+    .q-head { display:flex; align-items:center; padding:10px 14px 6px; font-weight:700; font-size:14px; }
+    .q-head .q-en { color:#bbb; font-size:12px; font-weight:400; margin-left:6px; }
+    .q-head .q-count { margin-left:auto; color:#999; font-size:12px; font-weight:400; }
+    .q-body { padding:0 8px 8px; }
+    .tech-item { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:7px 8px; border-bottom:1px solid #f5f5f5; }
+    .tech-item:last-child { border-bottom:none; }
+    .ti-name { font-weight:600; font-size:14px; }
+    .ti-reason { flex:1; min-width:120px; color:#999; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .ring-chip { display:inline-block; padding:1px 9px; border-radius:9px; font-size:11px; font-weight:600; flex:none; }
+    .r-adopt { background:#f6ffed; color:#52c41a; border:1px solid #b7eb8f; }
+    .r-trial { background:#fff7e6; color:#d48806; border:1px solid #ffe58f; }
+    .r-assess { background:#fff2e8; color:#fa541c; border:1px solid #ffbb96; }
+    .r-hold { background:#f5f5f5; color:#8c8c8c; border:1px solid #d9d9d9; }
+    /* 环分组行：adopt 绿底 / trial 黄 / assess 橙 / hold 灰 */
+    .ring-group { margin:4px 6px 8px; border-radius:8px; padding:4px 4px 6px; }
+    .rg-adopt { background:#f6ffed; }
+    .rg-trial { background:#fffbe6; }
+    .rg-assess { background:#fff7e6; }
+    .rg-hold { background:#f5f5f5; }
+    .rg-head { display:flex; align-items:center; gap:8px; padding:4px 8px 2px; font-size:12px; color:#666; }
+    .rg-head .rg-count { color:#999; }
+    .pending-badge { display:inline-block; padding:1px 8px; border-radius:9px; font-size:11px; background:#fff1f0; color:#ff4d4f; border:1px solid #ffa39e; flex:none; }
+    .ti-date { color:#bbb; font-size:11px; flex:none; }
+    .legend { background:#fff; border-radius:8px; padding:10px 14px; font-size:13px; color:#666; display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">技术雷达</h5>
+      <span class="text-muted" style="font-size:13px;">四象限四环分级；雷达不限分层，任何开关组合下可用</span>
+      <div class="spacer"></div>
+      <label class="ctl">象限
+        <select id="quadrantFilter" class="form-select form-select-sm" style="width:auto;">
+          <option value="">全部</option>
+          <option value="techniques">技术（techniques）</option>
+          <option value="tools">工具（tools）</option>
+          <option value="platforms">平台（platforms）</option>
+          <option value="languages">语言/框架（languages）</option>
+        </select>
+      </label>
+      <label class="ctl">环
+        <select id="ringFilter" class="form-select form-select-sm" style="width:auto;">
+          <option value="">全部</option>
+          <option value="adopt">adopt（采用）</option>
+          <option value="trial">trial（试用）</option>
+          <option value="assess">assess（评估）</option>
+          <option value="hold">hold（观望）</option>
+        </select>
+      </label>
+      <button id="newBtn" class="btn btn-primary btn-sm">+ 新建技术项</button>
+    </div>
+
+    <!-- 环图例 -->
+    <div class="legend">
+      <strong>环分级：</strong>
+      <span class="ring-chip r-adopt">adopt 采用</span><span class="text-muted">默认选择，生产可用</span>
+      <span class="ring-chip r-trial">trial 试用</span><span class="text-muted">试点项目先行</span>
+      <span class="ring-chip r-assess">assess 评估</span><span class="text-muted">值得评估观察</span>
+      <span class="ring-chip r-hold">hold 观望</span><span class="text-muted">暂缓/控制使用
+      </span>
+      <span class="ms-auto text-muted" style="font-size:12px;">复审超过 180 天的技术项标 <span class="pending-badge">待复审</span>（仅提示，不阻塞操作）</span>
+    </div>
+
+    <!-- 2×2 宫格 -->
+    <div class="radar-grid" id="radarGrid"></div>
+  </div>
+
+  <!-- 新建/编辑弹窗 -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">新建技术项</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="row">
+          <div class="col-6 mb-2"><label class="form-label small">技术名称 <span class="text-danger">*</span></label><input id="fName" class="form-control form-control-sm" maxlength="100" placeholder="如：Redis（租户内唯一，一技术一当前态）"></div>
+          <div class="col-3 mb-2"><label class="form-label small">象限 <span class="text-danger">*</span></label>
+            <select id="fQuadrant" class="form-select form-select-sm">
+              <option value="techniques">技术（techniques）</option>
+              <option value="tools">工具（tools）</option>
+              <option value="platforms">平台（platforms）</option>
+              <option value="languages">语言/框架（languages）</option>
+            </select>
+          </div>
+          <div class="col-3 mb-2"><label class="form-label small">环（ring）<span class="text-danger">*</span></label>
+            <select id="fRing" class="form-select form-select-sm">
+              <option value="adopt">adopt（采用）</option>
+              <option value="trial">trial（试用）</option>
+              <option value="assess">assess（评估）</option>
+              <option value="hold">hold（观望）</option>
+            </select>
+          </div>
+        </div>
+        <div class="mb-2"><label class="form-label small">理由（reason）<span class="text-danger">*</span></label><textarea id="fReason" class="form-control form-control-sm" rows="3" placeholder="如：缓存事实标准"></textarea></div>
+        <div class="row">
+          <div class="col-4 mb-2"><label class="form-label small">复审时间（reviewedAt）<span class="text-danger">*</span></label><input type="date" id="fReviewedAt" class="form-control form-control-sm"></div>
+          <div class="col-8 mb-2"><label class="form-label small">备注（remark）</label><input id="fRemark" class="form-control form-control-sm" maxlength="500"></div>
+        </div>
+        <div class="text-muted" style="font-size:12px;">环移动（如 trial→adopt）会记入治理审计（radar_update，含 fromRing/toRing）；同名技术项唯一，已存在请编辑既有项。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      // 象限与环枚举（集中定义）
+      const QUADRANTS = [
+        { key: 'techniques', cn: '技术', en: 'techniques' },
+        { key: 'tools', cn: '工具', en: 'tools' },
+        { key: 'platforms', cn: '平台', en: 'platforms' },
+        { key: 'languages', cn: '语言/框架', en: 'languages' }
+      ];
+      const RING_TEXT = { adopt: '采用', trial: '试用', assess: '评估', hold: '观望' };
+      const RING_CLASS = { adopt: 'r-adopt', trial: 'r-trial', assess: 'r-assess', hold: 'r-hold' };
+      const RING_KEYS = ['adopt', 'trial', 'assess', 'hold'];
+      const PENDING_DAYS = 180; // 180 天待复审阈值（AC-F5.4）
+
+      let allItems = [];
+      const filter = { quadrant: '', ring: '' };
+
+      // ---- 响应工具：兼容 code=0 与 code=200 ----
+      function ok(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
+      function xhrMsg(xhr, d) { return (xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || d || ('请求失败（' + xhr.status + '）'); }
+
+      function loadList() {
+        $('#radarGrid').html('<div class="quadrant"><div class="q-head">加载中...</div></div>');
+        API.bizGet('/api/v1/tech-radar').done(function (resp) {
+          if (!ok(resp)) {
+            $('#radarGrid').html('<div class="quadrant"><div class="q-head">' + escapeHtml(rmsg(resp, '加载失败')) + '</div></div>');
+            return;
+          }
+          allItems = resp.data || [];
+          renderGrid();
+        }).fail(function (xhr) {
+          $('#radarGrid').html('<div class="quadrant"><div class="q-head">' + escapeHtml(xhrMsg(xhr, '加载失败')) + '</div></div>');
+        });
+      }
+
+      function visibleItems() {
+        return allItems.filter(function (t) {
+          if (filter.quadrant && t.quadrant !== filter.quadrant) return false;
+          if (filter.ring && t.ring !== filter.ring) return false;
+          return true;
+        });
+      }
+
+      function renderGrid() {
+        const list = visibleItems();
+        $('#radarGrid').html(QUADRANTS.map(function (q) {
+          const qItems = list.filter(function (t) { return t.quadrant === q.key; });
+          let body;
+          if (!qItems.length) {
+            body = '<div class="text-muted text-center py-3" style="font-size:13px;">（暂无技术项）</div>';
+          } else {
+            // 每象限内按环分组（adopt→trial→assess→hold），组行底色即环档色
+            body = RING_KEYS.map(function (rk) {
+              const items = qItems.filter(function (t) { return (t.ring || 'assess') === rk; })
+                .sort(function (a, b) { return String(a.name || '').localeCompare(String(b.name || '')); });
+              if (!items.length) return '';
+              return '<div class="ring-group rg-' + rk + '">'
+                + '<div class="rg-head"><span class="ring-chip ' + RING_CLASS[rk] + '">' + rk + ' ' + RING_TEXT[rk] + '</span><span class="rg-count">' + items.length + ' 项</span></div>'
+                + items.map(techItemHtml).join('')
+                + '</div>';
+            }).join('');
+          }
+          return '<div class="quadrant q-' + q.key + '">'
+            + '<div class="q-head">' + escapeHtml(q.cn) + '<span class="q-en">' + escapeHtml(q.en) + '</span>'
+            + '<span class="q-count">' + qItems.length + ' 项</span></div>'
+            + '<div class="q-body">' + body + '</div>'
+            + '</div>';
+        }).join(''));
+      }
+
+      // 技术项行：名称 + 待复审标记 + 理由 + 复审时间 + 操作（环标识在分组头）
+      function techItemHtml(t) {
+        const pending = isPending(t);
+        return '<div class="tech-item">'
+          + '<span class="ti-name">' + escapeHtml(t.name || '-') + '</span>'
+          + (pending ? '<span class="pending-badge" title="' + escapeAttr('上次复审 ' + (t.reviewedAt || '-') + '，距今超过 ' + PENDING_DAYS + ' 天，建议安排复审（不阻塞操作）') + '">待复审</span>' : '')
+          + '<span class="ti-reason" title="' + escapeAttr(t.reason || '') + '">' + escapeHtml(t.reason || '') + '</span>'
+          + '<span class="ti-date" title="复审时间">复审 ' + escapeHtml(t.reviewedAt || '-') + '</span>'
+          + '<button class="btn btn-sm btn-outline-secondary t-edit" data-id="' + t.id + '">编辑</button>'
+          + '<button class="btn btn-sm btn-outline-danger t-del" data-id="' + t.id + '" data-name="' + escapeAttr(t.name || '') + '">删除</button>'
+          + '</div>';
+      }
+
+      // 待复审：服务端 pendingReview 优先，缺省时前端按 180 天兜底计算
+      function isPending(t) {
+        if (t.pendingReview != null) return !!t.pendingReview;
+        if (!t.reviewedAt) return false;
+        const ts = new Date(String(t.reviewedAt) + 'T00:00:00').getTime();
+        if (isNaN(ts)) return false;
+        return (Date.now() - ts) / 86400000 > PENDING_DAYS;
+      }
+
+      // ---- 新建 / 编辑（环移动服务端审计 fromRing/toRing）----
+      $('#newBtn').on('click', function () {
+        $('#fId').val('');
+        $('#fName').val('').prop('disabled', false);
+        $('#fQuadrant').val('techniques');
+        $('#fRing').val('adopt');
+        $('#fReason').val('');
+        $('#fReviewedAt').val(todayStr());
+        $('#fRemark').val('');
+        $('#modalTitle').text('新建技术项');
+        new bootstrap.Modal('#editModal').show();
+      });
+
+      $('#radarGrid').on('click', '.t-edit', function () {
+        const id = $(this).data('id');
+        const t = allItems.filter(function (x) { return String(x.id) === String(id); })[0];
+        if (!t) return;
+        $('#fId').val(t.id);
+        $('#fName').val(t.name || '').prop('disabled', true); // 一技术一当前态，名称为唯一键不可改
+        $('#fQuadrant').val(t.quadrant || 'techniques');
+        $('#fRing').val(t.ring || 'assess');
+        $('#fReason').val(t.reason || '');
+        $('#fReviewedAt').val(t.reviewedAt || '');
+        $('#fRemark').val(t.remark || '');
+        $('#modalTitle').text('编辑技术项 ' + (t.name || ('#' + t.id)));
+        new bootstrap.Modal('#editModal').show();
+      });
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const body = {
+          name: $('#fName').val().trim(),
+          quadrant: $('#fQuadrant').val(),
+          ring: $('#fRing').val(),
+          reason: $('#fReason').val().trim(),
+          reviewedAt: $('#fReviewedAt').val() || null,
+          remark: $('#fRemark').val().trim() || null
+        };
+        if (!body.name) { alert('技术名称不能为空'); return; }
+        if (!body.reason) { alert('reason 必填（入选理由）'); return; }
+        if (!body.reviewedAt) { alert('reviewedAt 必填（复审时间）'); return; }
+        const $btn = $(this).prop('disabled', true);
+        const req = id ? API.bizPut('/api/v1/tech-radar/' + id, body) : API.bizPost('/api/v1/tech-radar', body);
+        req.done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadList();
+          } else { alert(rmsg(resp, '保存失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '保存失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 删除 ----
+      $('#radarGrid').on('click', '.t-del', function () {
+        const id = $(this).data('id');
+        const name = $(this).data('name') || '';
+        if (!confirm('确认从雷达移除「' + name + '」？')) return;
+        API.bizDelete('/api/v1/tech-radar/' + id).done(function (resp) {
+          if (ok(resp)) loadList();
+          else { alert(rmsg(resp, '删除失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '删除失败')); });
+      });
+
+      // ---- 筛选 ----
+      $('#quadrantFilter').on('change', function () { filter.quadrant = $(this).val(); renderGrid(); });
+      $('#ringFilter').on('change', function () { filter.ring = $(this).val(); renderGrid(); });
+
+      // ---- 工具 ----
+      function todayStr() {
+        const d = new Date();
+        const p = function (n) { return n < 10 ? '0' + n : n; };
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+      }
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function escapeAttr(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+
+      loadList();
+    });
+  </script>
+</body>
+</html>

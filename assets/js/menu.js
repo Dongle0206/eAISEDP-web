@@ -11,7 +11,11 @@
     { key: 'checkpoint', title: '检查点审批', page: 'pages/checkpoint.html' },
     { key: 'search', title: '全局搜索', page: 'pages/search.html' },
     { key: 'capabilities', title: '能力注册表', page: 'pages/capabilities.html' },
-    { key: 'mcp', title: 'MCP 工具', page: 'pages/mcp.html' }
+    { key: 'mcp', title: 'MCP 工具', page: 'pages/mcp.html' },
+    // R1 评审修复：ADR 库/技术雷达是租户级知识资产，不限层、全角色（engineer/PM/executive 等）可见（只读），
+    // 从 tenant_admin 专属移入公共菜单；后端不注册 LayerGuard，任何开关组合下恒可用（AC-SWITCH.2）
+    { key: 'adr-list', title: 'ADR 库', page: 'pages/adr-list.html' },
+    { key: 'radar', title: '技术雷达', page: 'pages/radar.html' }
   ];
 
   const ROLE_MENUS = {
@@ -37,7 +41,11 @@
       { key: 'project-list', title: '项目管理', page: 'pages/project-list.html' },
       { key: 'principle-list', title: '架构原则', page: 'pages/principle-list.html' },
       { key: 'gate-rule-list', title: '门禁规则', page: 'pages/gate-rule-list.html' },
-      { key: 'layer-settings', title: '分层设置', page: 'pages/layer-settings.html' }
+      { key: 'layer-settings', title: '分层设置', page: 'pages/layer-settings.html' },
+      // 批C L2治理核心：DORA/依赖挂 L2 开关过滤（保持 tenant_admin 专属不变）；
+      // ADR 库/技术雷达已移 COMMON_MENUS（R1：租户级知识资产全角色可见，不再挂 tenant_admin）
+      { key: 'dora-board', title: '效能看板', page: 'pages/dora-board.html' },
+      { key: 'dependency-board', title: '依赖管理', page: 'pages/dependency-board.html' }
     ],
     project_manager: [
       // 批5 三层贯通：项目经理可管理项目（L2 关闭时页面显示 43002 友好提示）
@@ -67,11 +75,13 @@
       const strategyOn = layers ? layers.strategyEnabled !== false : true;
       const programProjectOn = layers ? layers.programProjectEnabled !== false : true;
       // 分层过滤：L3 关 → 隐藏战略入口（strategy- 前缀：strategy-list 与 D7 新增 strategy-board 一并隐藏）；
-      // L2 关 → 隐藏项目群/项目管理入口。
+      // L2 关 → 隐藏项目群/项目管理入口，以及依赖 L2 数据的批C入口（dora-board/dependency-board，strategy 前缀规则之外的显式补挂）；
+      // adr-list/radar 不限层（后端不注册 LayerGuard）且已入 COMMON_MENUS（R1 全角色可见），任何开关组合下不隐藏（AC-SWITCH.2）。
       // case-manage 属 COMMON（L1 恒开）不参与过滤；layer-settings 保留（管理员需进入重新开层）。
       const layerHidden = function (m) {
         if (!strategyOn && String(m.key).indexOf('strategy-') === 0) return true;
         if (!programProjectOn && (m.key.indexOf('program-') === 0 || m.key.indexOf('project-') === 0)) return true;
+        if (!programProjectOn && (m.key === 'dora-board' || m.key === 'dependency-board')) return true;
         return false;
       };
       const seen = {};

@@ -28,6 +28,23 @@
     .progress .bar { height:100%; background:#1677ff; border-radius:4px; }
     .charter-box { background:#fafafa; border:1px solid #f0f0f0; border-radius:6px; padding:12px 14px; font-size:14px; white-space:pre-wrap; line-height:1.7; }
     .empty-row td { text-align:center; color:#999; padding:32px 0; }
+    /* 里程碑时间线（批C：planned蓝/achieved绿/delayed红） */
+    .ms-item { display:flex; gap:12px; position:relative; padding:0 0 16px; }
+    .ms-item::before { content:''; position:absolute; left:5px; top:16px; bottom:-2px; width:2px; background:#f0f0f0; }
+    .ms-item:last-child { padding-bottom:0; }
+    .ms-item:last-child::before { display:none; }
+    .ms-dot { flex:none; width:12px; height:12px; border-radius:50%; margin-top:5px; }
+    .ms-dot.st-planned { background:#1677ff; }
+    .ms-dot.st-achieved { background:#52c41a; }
+    .ms-dot.st-delayed { background:#ff4d4f; }
+    .ms-body { flex:1; min-width:0; }
+    .ms-title { font-weight:600; }
+    .ms-meta { font-size:12px; color:#999; margin:2px 0 6px; }
+    .ms-lv { display:inline-block; background:#f0f5ff; color:#3f6ef5; border-radius:9px; padding:0 8px; font-size:11px; margin-left:6px; }
+    .ms-overdue { display:inline-block; background:#fff7e6; color:#fa8c16; border-radius:9px; padding:0 8px; font-size:11px; margin-left:6px; }
+    .msb-planned { background:#e6f4ff; color:#1677ff; }
+    .msb-achieved { background:#f6ffed; color:#52c41a; }
+    .msb-delayed { background:#fff1f0; color:#ff4d4f; }
   </style>
 </head>
 <body>
@@ -83,9 +100,44 @@
       </div>
     </div>
 
+    <!-- 里程碑时间线（批C：群直属+成员项目聚合，AC-F2.6） -->
+    <div class="section d-none" id="msSection">
+      <div class="d-flex align-items-center mb-2">
+        <h6 class="mb-0" style="flex:1;">里程碑时间线（群直属 + 成员项目，按目标日期排序）</h6>
+        <button id="msNewBtn" class="btn btn-primary btn-sm">+ 新建里程碑（本群）</button>
+      </div>
+      <div id="msTimeline"><div class="text-center text-muted py-3">加载中...</div></div>
+    </div>
+
     <div class="section" id="loadingSection">
       <div class="text-center text-muted py-4">加载中...</div>
     </div>
+  </div>
+
+  <!-- 新建/编辑里程碑弹窗（两级归属自动带入本群） -->
+  <div class="modal fade" id="msModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="msModalTitle">新建里程碑</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="msFId">
+        <input type="hidden" id="msFOwnerType">
+        <input type="hidden" id="msFOwnerId">
+        <div class="mb-2"><label class="form-label small">归属（自动带入）</label><input id="msFOwnerDisplay" class="form-control form-control-sm" readonly></div>
+        <div class="mb-2"><label class="form-label small">标题 <span class="text-danger">*</span></label><input id="msFTitle" class="form-control form-control-sm" maxlength="200" placeholder="如：接口联调完成"></div>
+        <div class="row">
+          <div class="col-4 mb-2"><label class="form-label small">目标日期</label><input type="date" id="msFTarget" class="form-control form-control-sm"></div>
+          <div class="col-4 mb-2"><label class="form-label small">负责人</label><input id="msFOwner" class="form-control form-control-sm" maxlength="50" placeholder="如：张三"></div>
+          <div class="col-4 mb-2"><label class="form-label small">阻碍项（blocker）</label><input id="msFBlocker" class="form-control form-control-sm" maxlength="200" placeholder="无"></div>
+        </div>
+        <div class="mb-2"><label class="form-label small">描述</label><textarea id="msFDesc" class="form-control form-control-sm" rows="2" maxlength="1000"></textarea></div>
+        <div class="mb-0 d-none" id="msSubRow">
+          <label class="form-label small mb-1">涉及成员项目（群级里程碑多选，仅展示用）</label>
+          <div id="msSubList" style="max-height:140px;overflow:auto;border:1px solid #eee;border-radius:6px;padding:8px 12px;"></div>
+        </div>
+        <div class="text-muted mt-2" style="font-size:12px;">状态流转：planned→achieved（达成确认，记达成日期）/ delayed；achieved 可撤销回 planned；逾期仅黄标提示，系统不改状态。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="msSaveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
   </div>
 
   <script src="../assets/js/jquery-3.7.1.min.js"></script>
@@ -124,6 +176,11 @@
       }
 
       let strategyMap = null;
+      let programName = '';
+      let memberProjects = [];
+      // 兼容 code=0（平台旧壳）与 code=200（批B 契约）
+      function okResp(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
       function fillStrategyName(strategyId) {
         const $el = $('#pStrategy').text('#' + strategyId + '（战略层未启用，无法解析名称）');
         API.bizGet('/api/v1/strategies?page=1&size=500&status=all').done(function (resp) {
@@ -138,6 +195,8 @@
         $('#loadingSection').addClass('d-none');
         $('#headSection').removeClass('d-none');
         $('#pName').text(p.name || ('项目群 #' + id));
+        programName = p.name || ('项目群 #' + id);
+        memberProjects = p.projects || [];
         const st = p.status || 'unknown';
         $('#pStatus').html('<span class="status-badge ' + (PG_CLASS[st] || 'pg-unknown') + '">' + (PG_TEXT[st] || st) + '</span>');
         $('#pId').text(p.id || id);
@@ -160,28 +219,224 @@
         $('#projCount').text(projects.length);
         if (!projects.length) {
           $('#projTbody').html('<tr class="empty-row"><td colspan="6">暂无成员项目，可在项目管理中将项目挂入本群</td></tr>');
-          return;
+        } else {
+          $('#projTbody').html(projects.map(function (pr) {
+            const pst = pr.status || 'unknown';
+            const prog = pr.progress || 0;
+            const done = pr.caseDone != null ? pr.caseDone : 0;
+            const total = pr.caseTotal != null ? pr.caseTotal : 0;
+            return '<tr>'
+              + '<td>#' + escapeHtml(pr.id) + '</td>'
+              + '<td><strong>' + escapeHtml(pr.name || '') + '</strong></td>'
+              + '<td><span class="status-badge ' + (PR_CLASS[pst] || 'pr-unknown') + '">' + (PR_TEXT[pst] || pst) + '</span></td>'
+              + '<td>P' + escapeHtml(pr.priority != null ? pr.priority : '-') + '</td>'
+              + '<td><div class="d-flex align-items-center" style="gap:8px;"><div class="progress" style="flex:1;"><div class="bar" style="width:' + Math.min(100, prog) + '%;"></div></div><span style="font-size:12px;color:#1677ff;font-weight:600;white-space:nowrap;">' + prog + '%（' + done + '/' + total + '）</span></div></td>'
+              + '<td><button class="btn btn-sm btn-outline-primary proj-view" data-id="' + pr.id + '">详情</button></td>'
+              + '</tr>';
+          }).join(''));
         }
-        $('#projTbody').html(projects.map(function (pr) {
-          const pst = pr.status || 'unknown';
-          const prog = pr.progress || 0;
-          const done = pr.caseDone != null ? pr.caseDone : 0;
-          const total = pr.caseTotal != null ? pr.caseTotal : 0;
-          return '<tr>'
-            + '<td>#' + escapeHtml(pr.id) + '</td>'
-            + '<td><strong>' + escapeHtml(pr.name || '') + '</strong></td>'
-            + '<td><span class="status-badge ' + (PR_CLASS[pst] || 'pr-unknown') + '">' + (PR_TEXT[pst] || pst) + '</span></td>'
-            + '<td>P' + escapeHtml(pr.priority != null ? pr.priority : '-') + '</td>'
-            + '<td><div class="d-flex align-items-center" style="gap:8px;"><div class="progress" style="flex:1;"><div class="bar" style="width:' + Math.min(100, prog) + '%;"></div></div><span style="font-size:12px;color:#1677ff;font-weight:600;white-space:nowrap;">' + prog + '%（' + done + '/' + total + '）</span></div></td>'
-            + '<td><button class="btn btn-sm btn-outline-primary proj-view" data-id="' + pr.id + '">详情</button></td>'
-            + '</tr>';
-        }).join(''));
+
+        // 里程碑时间线（批C）
+        loadMilestones();
       }
 
       $('#projTbody').on('click', '.proj-view', function () {
         goPage('project-detail-' + $(this).data('id'), '项目详情', 'pages/project-detail.html?id=' + $(this).data('id'));
       });
       $('#backBtn').on('click', function () { goPage('program-list', '项目群管理', 'pages/program-list.html'); });
+
+      // ================= 里程碑时间线（批C）=================
+      const MS_TEXT = { planned: '规划中', achieved: '已达成', delayed: '已延迟' };
+      const MS_CLASS = { planned: 'msb-planned', achieved: 'msb-achieved', delayed: 'msb-delayed' };
+
+      function loadMilestones() {
+        $('#msSection').removeClass('d-none');
+        const $box = $('#msTimeline').html('<div class="text-center text-muted py-3">加载中...</div>');
+        API.bizGet('/api/v1/programs/' + encodeURIComponent(id) + '/milestone-timeline').done(function (resp) {
+          if (isLayerOff(resp)) {
+            $box.html('<div class="text-muted py-2" style="font-size:13px;">⚠ 里程碑不可用：' + LAYER_TIP + '</div>');
+            return;
+          }
+          if (!okResp(resp)) {
+            $box.html('<div class="text-danger py-2" style="font-size:13px;">' + escapeHtml(rmsg(resp, '里程碑加载失败')) + '</div>');
+            return;
+          }
+          renderMilestones(resp.data || []);
+        }).fail(function (xhr) {
+          $box.html('<div class="text-danger py-2" style="font-size:13px;">' + escapeHtml((xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || '里程碑加载失败') + '</div>');
+        });
+      }
+
+      function renderMilestones(list) {
+        list.sort(function (a, b) { return String(a.targetDate || '').localeCompare(String(b.targetDate || '')); });
+        if (!list.length) {
+          $('#msTimeline').html('<div class="text-center text-muted py-3">暂无里程碑，点击右上角"新建里程碑"创建</div>');
+          return;
+        }
+        $('#msTimeline').html(list.map(msItemHtml).join(''));
+      }
+
+      function msItemHtml(m) {
+        const st = m.status || 'planned';
+        const lv = m.ownerType === 'program' ? '群直属' : (m.ownerName || ('项目 #' + m.ownerId));
+        const btns = [];
+        if (st === 'planned' || st === 'delayed') {
+          btns.push('<button class="btn btn-sm btn-outline-success ms-achieve" data-id="' + m.id + '" data-title="' + escapeAttr(m.title || '') + '">达成确认</button>');
+        }
+        if (st === 'planned') {
+          btns.push('<button class="btn btn-sm btn-outline-warning ms-delay" data-id="' + m.id + '" data-title="' + escapeAttr(m.title || '') + '">标记延迟</button>');
+        }
+        if (st === 'achieved') {
+          btns.push('<button class="btn btn-sm btn-outline-secondary ms-revert" data-id="' + m.id + '" data-title="' + escapeAttr(m.title || '') + '">撤销达成</button>');
+        }
+        btns.push('<button class="btn btn-sm btn-outline-primary ms-edit" data-id="' + m.id + '" data-ownname="' + escapeAttr(m.ownerName || '') + '">编辑</button>');
+        btns.push('<button class="btn btn-sm btn-outline-danger ms-del" data-id="' + m.id + '">删除</button>');
+        return '<div class="ms-item">'
+          + '<span class="ms-dot st-' + st + '" title="' + (MS_TEXT[st] || st) + '"></span>'
+          + '<div class="ms-body">'
+          + '<div class="ms-title">' + escapeHtml(m.title || '-')
+          + '<span class="ms-lv">' + escapeHtml(lv) + '</span>'
+          + '<span class="status-badge ' + (MS_CLASS[st] || 'msb-planned') + '" style="margin-left:6px;">' + (MS_TEXT[st] || st) + '</span>'
+          + (m.overdue ? '<span class="ms-overdue" title="目标日期已过且仍为规划中，仅黄标提示">已逾期</span>' : '')
+          + '</div>'
+          + '<div class="ms-meta">'
+          + (m.milestoneCode ? escapeHtml(m.milestoneCode) + ' · ' : '')
+          + '目标 ' + escapeHtml(m.targetDate || '-')
+          + (m.achievedDate ? ' · 达成于 ' + escapeHtml(m.achievedDate) : '')
+          + (m.owner ? ' · 负责人 ' + escapeHtml(m.owner) : '')
+          + '</div>'
+          + '<div>' + btns.join(' ') + '</div>'
+          + '</div></div>';
+      }
+
+      // ---- 状态流转：达成确认（默认今天可改日期）/ 撤销 / 标记延迟 ----
+      $('#msTimeline').on('click', '.ms-achieve', function () {
+        const mid = $(this).data('id');
+        const title = $(this).data('title') || '';
+        const input = prompt('确认达成里程碑「' + title + '」\n达成日期（yyyy-MM-dd，默认今天）：', todayStr());
+        if (input === null) return;
+        const d = (input || '').trim() || todayStr();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) { alert('日期格式应为 yyyy-MM-dd'); return; }
+        API.bizPost('/api/v1/milestones/' + mid + '/transit', { target: 'achieved', achievedDate: d }).done(function (resp) {
+          if (okResp(resp)) loadMilestones();
+          else if (isLayerOff(resp)) { alert(LAYER_TIP); }
+          else { alert(rmsg(resp, '流转失败')); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || '流转失败'); });
+      });
+      $('#msTimeline').on('click', '.ms-delay', function () {
+        const mid = $(this).data('id');
+        if (!confirm('确认将里程碑标记为「已延迟」？')) return;
+        API.bizPost('/api/v1/milestones/' + mid + '/transit', { target: 'delayed' }).done(function (resp) {
+          if (okResp(resp)) loadMilestones();
+          else if (isLayerOff(resp)) { alert(LAYER_TIP); }
+          else { alert(rmsg(resp, '流转失败')); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || '流转失败'); });
+      });
+      $('#msTimeline').on('click', '.ms-revert', function () {
+        const mid = $(this).data('id');
+        if (!confirm('确认撤销达成（回 planned，达成日期将清空）？')) return;
+        API.bizPost('/api/v1/milestones/' + mid + '/transit', { target: 'planned' }).done(function (resp) {
+          if (okResp(resp)) loadMilestones();
+          else if (isLayerOff(resp)) { alert(LAYER_TIP); }
+          else { alert(rmsg(resp, '流转失败')); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || '流转失败'); });
+      });
+      $('#msTimeline').on('click', '.ms-del', function () {
+        const mid = $(this).data('id');
+        if (!confirm('确认删除里程碑 #' + mid + '？')) return;
+        API.bizDelete('/api/v1/milestones/' + mid).done(function (resp) {
+          if (okResp(resp)) loadMilestones();
+          else if (isLayerOff(resp)) { alert(LAYER_TIP); }
+          else { alert(rmsg(resp, '删除失败')); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || '删除失败'); });
+      });
+
+      // ---- 新建（归属自动带入本群）/ 编辑 ----
+      $('#msNewBtn').on('click', function () {
+        fillMsModal({ ownerType: 'program', ownerId: parseInt(id, 10) }, '');
+        $('#msModalTitle').text('新建里程碑（本群）');
+        new bootstrap.Modal('#msModal').show();
+      });
+      $('#msTimeline').on('click', '.ms-edit', function () {
+        const mid = $(this).data('id');
+        const ownname = $(this).data('ownname') || '';
+        API.bizGet('/api/v1/milestones/' + mid).done(function (resp) {
+          if (!okResp(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          fillMsModal(resp.data || {}, ownname);
+          $('#msModalTitle').text('编辑里程碑 #' + mid);
+          new bootstrap.Modal('#msModal').show();
+        }).fail(function (xhr) { alert((xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || '加载失败'); });
+      });
+
+      function fillMsModal(m, ownname) {
+        $('#msFId').val(m.id || '');
+        const ot = m.ownerType || 'program';
+        const oid = m.ownerId != null ? m.ownerId : parseInt(id, 10);
+        $('#msFOwnerType').val(ot);
+        $('#msFOwnerId').val(oid);
+        $('#msFOwnerDisplay').val(ot === 'program'
+          ? ('项目群（本群）：' + programName)
+          : ('项目：' + (ownname || ('#' + oid))));
+        $('#msFTitle').val(m.title || '');
+        $('#msFTarget').val(m.targetDate || '');
+        $('#msFOwner').val(m.owner || '');
+        $('#msFBlocker').val(m.blocker || '');
+        $('#msFDesc').val(m.description || '');
+        // 群级里程碑：成员项目多选（仅展示）
+        if (ot === 'program') {
+          $('#msSubRow').removeClass('d-none');
+          const subs = m.subprojects || [];
+          const subMap = {};
+          subs.forEach(function (s) { subMap[typeof s === 'object' ? (s.id != null ? s.id : s.projectId) : s] = true; });
+          if (!memberProjects.length) {
+            $('#msSubList').html('<div class="text-muted py-1">（本群暂无成员项目）</div>');
+          } else {
+            $('#msSubList').html(memberProjects.map(function (p) {
+              return '<div class="form-check"><input class="form-check-input ms-sub-ck" type="checkbox" value="' + p.id + '" id="mss-' + p.id + '"' + (subMap[p.id] ? ' checked' : '') + '>'
+                + '<label class="form-check-label" for="mss-' + p.id + '" style="font-size:13px;">' + escapeHtml('#' + p.id + ' ' + (p.name || '')) + '</label></div>';
+            }).join(''));
+          }
+        } else {
+          $('#msSubRow').addClass('d-none');
+        }
+      }
+
+      $('#msSaveBtn').on('click', function () {
+        const mid = $('#msFId').val();
+        const ot = $('#msFOwnerType').val();
+        const body = {
+          ownerType: ot,
+          ownerId: parseInt($('#msFOwnerId').val(), 10),
+          title: $('#msFTitle').val().trim(),
+          description: $('#msFDesc').val().trim() || null,
+          targetDate: $('#msFTarget').val() || null,
+          owner: $('#msFOwner').val().trim() || null,
+          blocker: $('#msFBlocker').val().trim() || null,
+          subprojects: ot === 'program' ? collectMsSubprojects() : null
+        };
+        if (!body.title) { alert('标题不能为空'); return; }
+        const $btn = $(this).prop('disabled', true);
+        const req = mid ? API.bizPut('/api/v1/milestones/' + mid, body) : API.bizPost('/api/v1/milestones', body);
+        req.done(function (resp) {
+          if (okResp(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('msModal')).hide();
+            loadMilestones();
+          } else if (isLayerOff(resp)) { alert(LAYER_TIP); }
+          else { alert(rmsg(resp, '保存失败')); }
+        }).fail(function (xhr) { alert((xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || '保存失败'); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+      function collectMsSubprojects() {
+        const arr = [];
+        $('#msSubList .ms-sub-ck:checked').each(function () { arr.push(parseInt($(this).val(), 10)); });
+        return arr;
+      }
+
+      function todayStr() {
+        const d = new Date();
+        const p = function (n) { return n < 10 ? '0' + n : n; };
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+      }
 
       function goPage(key, title, page) {
         if (window.self !== window.top && window.parent && window.parent.eaiselpNav) {

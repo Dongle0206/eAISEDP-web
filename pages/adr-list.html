@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ADR 库 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .status-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+    .as-proposed { background:#e6f4ff; color:#1677ff; }
+    .as-accepted { background:#f6ffed; color:#52c41a; }
+    .as-deprecated { background:#f5f5f5; color:#999; }
+    .as-superseded { background:#f9f0ff; color:#722ed1; }
+    .as-unknown { background:#f5f5f5; color:#999; }
+    .code-chip { font-family:Consolas,monospace; font-weight:700; color:#1677ff; }
+    .p-chip { display:inline-block; background:#f9f0ff; color:#722ed1; border-radius:9px; padding:1px 8px; font-size:12px; margin:1px 4px 1px 0; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .sec-title { font-weight:700; font-size:13px; color:#1677ff; margin-bottom:2px; }
+    .sec-body { font-size:13px; color:#333; white-space:pre-wrap; background:#fafafa; border-radius:6px; padding:8px 12px; margin-bottom:10px; }
+    .p-ck { display:inline-block; border:1px solid #d3adf7; border-radius:8px; padding:3px 10px; margin:0 6px 6px 0; font-size:13px; cursor:pointer; }
+    .p-ck input { margin-right:4px; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">ADR 架构决策库</h5>
+      <span class="text-muted" style="font-size:13px;">五段式决策记录；ADR/原则不限分层，任何开关组合下可用</span>
+      <div class="spacer"></div>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">状态：</span>
+        <select id="statusFilter" class="form-select form-select-sm" style="width:auto;">
+          <option value="">进行中（proposed+accepted）</option>
+          <option value="proposed">提议中</option>
+          <option value="accepted">已接受</option>
+          <option value="deprecated">已废弃</option>
+          <option value="superseded">已被取代</option>
+          <option value="proposed,accepted,deprecated,superseded">全部（含终态）</option>
+        </select>
+      </label>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">关联原则：</span>
+        <select id="principleFilter" class="form-select form-select-sm" style="width:auto;min-width:150px;">
+          <option value="">不限</option>
+        </select>
+      </label>
+      <input id="keywordInput" class="form-control form-control-sm" style="width:180px;" placeholder="标题关键字">
+      <button id="searchBtn" class="btn btn-outline-secondary btn-sm">搜索</button>
+      <button id="newBtn" class="btn btn-primary btn-sm">+ 新建 ADR</button>
+    </div>
+
+    <!-- 原则同步提示（transit 后 principleSyncHints 非空时展示，系统不自动改原则） -->
+    <div id="syncTip" class="alert alert-warning d-none py-2" style="font-size:13px;"></div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:100px;">编号</th>
+            <th>标题</th>
+            <th style="width:90px;">状态</th>
+            <th style="width:200px;">关联原则</th>
+            <th style="width:110px;">决策日期</th>
+            <th style="width:100px;">作者</th>
+            <th style="width:250px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="empty-row"><td colspan="7">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pager">
+      <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+      <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+      <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+      <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="10">10/页</option>
+        <option value="20">20/页</option>
+        <option value="50">50/页</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 详情弹窗（五段式展示） -->
+  <div class="modal fade" id="viewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="viewTitle">ADR 详情</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="viewBody"></div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">关闭</button></div>
+    </div></div>
+  </div>
+
+  <!-- 新建/编辑弹窗（五段式：标题/上下文/决策/后果/关联原则） -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">新建 ADR</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="row">
+          <div class="col-4 mb-2"><label class="form-label small">编号 <span class="text-muted">（留空自动生成 ADR-NNN）</span></label><input id="fAdrCode" class="form-control form-control-sm" maxlength="50" placeholder="如 ADR-001"></div>
+          <div class="col-8 mb-2"><label class="form-label small">标题 <span class="text-danger">*</span></label><input id="fTitle" class="form-control form-control-sm" maxlength="200"></div>
+        </div>
+        <div class="mb-2"><label class="form-label small">上下文（context）<span class="text-danger">*</span></label><textarea id="fContext" class="form-control form-control-sm" rows="3"></textarea></div>
+        <div class="mb-2"><label class="form-label small">决策（decision）<span class="text-danger">*</span></label><textarea id="fDecision" class="form-control form-control-sm" rows="3"></textarea></div>
+        <div class="mb-2"><label class="form-label small">后果（consequences）<span class="text-danger">*</span></label><textarea id="fConsequences" class="form-control form-control-sm" rows="3"></textarea></div>
+        <div class="mb-2"><label class="form-label small mb-1">关联原则（多选）</label><div id="principleBoxes"><span class="text-muted">加载中...</span></div></div>
+        <div class="row">
+          <div class="col-6 mb-2"><label class="form-label small">决策日期</label><input type="date" id="fDecisionDate" class="form-control form-control-sm"></div>
+          <div class="col-6 mb-2"><label class="form-label small">作者</label><input id="fAuthor" class="form-control form-control-sm" maxlength="100" placeholder="如 admin"></div>
+        </div>
+        <div class="text-muted" style="font-size:12px;">创建后默认 proposed 状态；状态变更只走"流转"（proposed→accepted→deprecated/superseded，终态不可回退）。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <!-- 状态流转弹窗 -->
+  <div class="modal fade" id="transitModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="transitTitle">状态流转</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="tId">
+        <div class="mb-2"><label class="form-label small">目标状态 <span class="text-danger">*</span></label>
+          <select id="tTarget" class="form-select form-select-sm"></select>
+        </div>
+        <div class="mb-2 d-none" id="tSupersedeWrap"><label class="form-label small">被哪个 ADR 取代（supersededBy）<span class="text-danger">*</span></label>
+          <select id="tSupersede" class="form-select form-select-sm"></select>
+          <div class="text-muted" style="font-size:12px;">仅可选 accepted 状态的 ADR，且不能指向自身。</div>
+        </div>
+        <div class="mb-2 d-none" id="tReasonWrap"><label class="form-label small">废弃说明（deprecateReason）<span class="text-danger">*</span></label>
+          <textarea id="tReason" class="form-control form-control-sm" rows="3" placeholder="如：已被事件驱动架构取代"></textarea>
+        </div>
+        <div class="text-muted" style="font-size:12px;">状态机：proposed→accepted；accepted→deprecated（必填废弃说明）/superseded（必填后继 ADR）；deprecated/superseded 为终态不可回退。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="transitBtn" class="btn btn-primary btn-sm">确认流转</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const STATUS_TEXT = { proposed: '提议中', accepted: '已接受', deprecated: '已废弃', superseded: '已被取代' };
+      const STATUS_CLASS = { proposed: 'as-proposed', accepted: 'as-accepted', deprecated: 'as-deprecated', superseded: 'as-superseded' };
+      // 状态机（契约 §4）：proposed→accepted；accepted→deprecated/superseded；终态无出边
+      const TRANSITS = {
+        proposed: [{ to: 'accepted', label: '接受（accepted）' }],
+        accepted: [
+          { to: 'deprecated', label: '废弃（deprecated）' },
+          { to: 'superseded', label: '被取代（superseded）' }
+        ],
+        deprecated: [],
+        superseded: []
+      };
+
+      const state = { page: 1, size: 10, status: '', principleCode: '', keyword: '', total: 0 };
+      let principles = [];
+
+      // ---- 响应工具：兼容 code=0 与 code=200 ----
+      function ok(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
+      function xhrMsg(xhr, d) { return (xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || d || ('请求失败（' + xhr.status + '）'); }
+
+      // ---- 原则清单（筛选项 + 弹窗多选）----
+      function loadPrinciples(cb) {
+        if (principles.length) { if (cb) cb(); return; }
+        API.bizGet('/api/v1/principles').done(function (resp) {
+          if (ok(resp)) principles = resp.data || [];
+          const opts = principles.map(function (p) {
+            return '<option value="' + escapeAttr(p.code) + '">' + escapeHtml(p.code + ' ' + (p.title || '')) + '</option>';
+          }).join('');
+          $('#principleFilter').append(opts);
+          if (cb) cb();
+        }).fail(function () { if (cb) cb(); });
+      }
+
+      function renderPrincipleBoxes(selected) {
+        selected = selected || [];
+        if (!principles.length) {
+          $('#principleBoxes').html('<span class="text-muted">暂无原则（可在"架构原则"页创建后再关联）</span>');
+          return;
+        }
+        $('#principleBoxes').html(principles.map(function (p) {
+          const checked = selected.indexOf(p.code) !== -1 ? ' checked' : '';
+          return '<label class="p-ck"><input type="checkbox" class="principle-ck" value="' + escapeAttr(p.code) + '"' + checked + '>'
+            + escapeHtml(p.code + ' ' + (p.title || '')) + '</label>';
+        }).join(''));
+      }
+      function collectPrinciples() {
+        const arr = [];
+        $('#principleBoxes .principle-ck:checked').each(function () { arr.push($(this).val()); });
+        return arr;
+      }
+
+      // ---- 列表 ----
+      function loadList() {
+        $('#tbody').html('<tr class="empty-row"><td colspan="7">加载中...</td></tr>');
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.status) params.set('status', state.status);
+        if (state.principleCode) params.set('principleCode', state.principleCode);
+        if (state.keyword) params.set('keyword', state.keyword);
+        API.bizGet('/api/v1/adrs?' + params.toString()).done(function (resp) {
+          if (!ok(resp)) {
+            $('#tbody').html('<tr class="empty-row"><td colspan="7">' + escapeHtml(rmsg(resp, '加载失败')) + '</td></tr>');
+            $('#pageInfo').html('');
+            return;
+          }
+          const data = resp.data || {};
+          const list = data.records || data.list || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="7">' + escapeHtml(xhrMsg(xhr, '加载失败')) + '</td></tr>');
+        });
+      }
+
+      function renderTable(list) {
+        if (!list.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="7">暂无 ADR，点击右上角"新建 ADR"创建</td></tr>');
+          return;
+        }
+        $('#tbody').html(list.map(function (a) {
+          const st = a.status || 'unknown';
+          const pcs = (a.relatedPrincipleCodes || []).map(function (c) {
+            return '<span class="p-chip">' + escapeHtml(c) + '</span>';
+          }).join('') || '<span class="text-muted">-</span>';
+          const btns = ['<button class="btn btn-sm btn-outline-primary a-view" data-id="' + a.id + '">详情</button>',
+            '<button class="btn btn-sm btn-outline-secondary a-edit" data-id="' + a.id + '" data-code="' + escapeAttr(a.adrCode || '') + '">编辑</button>'];
+          if ((TRANSITS[st] || []).length) {
+            btns.push('<button class="btn btn-sm btn-outline-success a-transit" data-id="' + a.id + '" data-status="' + escapeAttr(st) + '">流转</button>');
+          }
+          btns.push('<button class="btn btn-sm btn-outline-danger a-del" data-id="' + a.id + '">删除</button>');
+          return '<tr>'
+            + '<td><span class="code-chip">' + escapeHtml(a.adrCode || ('#' + a.id)) + '</span></td>'
+            + '<td><strong>' + escapeHtml(a.title || '') + '</strong></td>'
+            + '<td><span class="status-badge ' + (STATUS_CLASS[st] || 'as-unknown') + '">' + (STATUS_TEXT[st] || st) + '</span></td>'
+            + '<td>' + pcs + '</td>'
+            + '<td>' + escapeHtml(a.decisionDate || '-') + '</td>'
+            + '<td>' + escapeHtml(a.author || '-') + '</td>'
+            + '<td style="white-space:nowrap;">' + btns.join(' ') + '</td>'
+            + '</tr>';
+        }).join(''));
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + state.page + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', state.page <= 1);
+        $('#nextBtn').prop('disabled', state.page >= totalPages);
+      }
+
+      // ---- 详情（五段式 + 流转元信息回显）----
+      $('#tbody').on('click', '.a-view', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/adrs/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const a = resp.data || {};
+          const st = a.status || 'unknown';
+          $('#viewTitle').html('<span class="code-chip">' + escapeHtml(a.adrCode || ('#' + a.id)) + '</span> '
+            + escapeHtml(a.title || '') + ' '
+            + '<span class="status-badge ' + (STATUS_CLASS[st] || 'as-unknown') + '">' + (STATUS_TEXT[st] || st) + '</span>');
+          const pcs = (a.relatedPrincipleCodes || []).map(function (c) { return '<span class="p-chip">' + escapeHtml(c) + '</span>'; }).join('') || '<span class="text-muted">（无）</span>';
+          $('#viewBody').html(
+            sec('上下文（context）', a.context)
+            + sec('决策（decision）', a.decision)
+            + sec('后果（consequences）', a.consequences)
+            + '<div class="sec-title">关联原则</div><div class="sec-body">' + pcs + '</div>'
+            + '<div class="text-muted" style="font-size:13px;">'
+            + '决策日期：' + escapeHtml(a.decisionDate || '-') + ' · 作者：' + escapeHtml(a.author || '-')
+            + (a.supersededBy ? ' · 被 <strong>' + escapeHtml(a.supersededBy) + '</strong> 取代' : '')
+            + (a.deprecateReason ? ' · 废弃说明：' + escapeHtml(a.deprecateReason) : '')
+            + '</div>');
+          new bootstrap.Modal('#viewModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+      function sec(title, content) {
+        return '<div class="sec-title">' + escapeHtml(title) + '</div><div class="sec-body">' + escapeHtml(content || '（未填写）') + '</div>';
+      }
+
+      // ---- 新建 / 编辑 ----
+      $('#newBtn').on('click', function () {
+        $('#fId').val('');
+        $('#fAdrCode').val('').prop('disabled', false);
+        $('#fTitle').val(''); $('#fContext').val(''); $('#fDecision').val(''); $('#fConsequences').val('');
+        $('#fDecisionDate').val(todayStr());
+        $('#fAuthor').val('');
+        renderPrincipleBoxes([]);
+        $('#modalTitle').text('新建 ADR');
+        new bootstrap.Modal('#editModal').show();
+      });
+
+      $('#tbody').on('click', '.a-edit', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/adrs/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const a = resp.data || {};
+          $('#fId').val(a.id);
+          $('#fAdrCode').val(a.adrCode || '').prop('disabled', true);
+          $('#fTitle').val(a.title || '');
+          $('#fContext').val(a.context || '');
+          $('#fDecision').val(a.decision || '');
+          $('#fConsequences').val(a.consequences || '');
+          $('#fDecisionDate').val(a.decisionDate || '');
+          $('#fAuthor').val(a.author || '');
+          renderPrincipleBoxes(a.relatedPrincipleCodes || []);
+          $('#modalTitle').text('编辑 ADR ' + (a.adrCode || ('#' + a.id)));
+          new bootstrap.Modal('#editModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const body = {
+          adrCode: $('#fAdrCode').val().trim() || null,
+          title: $('#fTitle').val().trim(),
+          context: $('#fContext').val().trim(),
+          decision: $('#fDecision').val().trim(),
+          consequences: $('#fConsequences').val().trim(),
+          relatedPrincipleCodes: collectPrinciples(),
+          decisionDate: $('#fDecisionDate').val() || null,
+          author: $('#fAuthor').val().trim() || null
+        };
+        if (!body.title) { alert('标题不能为空'); return; }
+        if (!body.context) { alert('context 不能为空（五段式必填）'); return; }
+        if (!body.decision) { alert('decision 不能为空（五段式必填）'); return; }
+        if (!body.consequences) { alert('consequences 不能为空（五段式必填）'); return; }
+        const $btn = $(this).prop('disabled', true);
+        const req = id ? API.bizPut('/api/v1/adrs/' + id, body) : API.bizPost('/api/v1/adrs', body);
+        req.done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadList();
+          } else { alert(rmsg(resp, '保存失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '保存失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 状态流转（superseded 填 supersededBy / deprecated 填 reason）----
+      $('#tbody').on('click', '.a-transit', function () {
+        const id = $(this).data('id');
+        const st = $(this).data('status');
+        const opts = TRANSITS[st] || [];
+        if (!opts.length) { alert('deprecated/superseded 为终态，不可回退'); return; }
+        $('#tId').val(id);
+        $('#tTarget').html(opts.map(function (t) {
+          return '<option value="' + t.to + '">' + escapeHtml(t.label) + '</option>';
+        }).join(''));
+        $('#tReason').val('');
+        $('#tSupersede').html('<option value="">加载中...</option>');
+        $('#transitTitle').text('状态流转（当前：' + (STATUS_TEXT[st] || st) + '）');
+        syncTransitFields();
+        new bootstrap.Modal('#transitModal').show();
+        // 后继 ADR 候选：仅 accepted 且非自身
+        API.bizGet('/api/v1/adrs?status=accepted&page=1&size=500').done(function (resp) {
+          const list = ok(resp) ? (resp.data && (resp.data.records || resp.data.list)) || [] : [];
+          const cands = list.filter(function (a) { return String(a.id) !== String(id); });
+          $('#tSupersede').html('<option value="">（选择后继 ADR...）</option>' + cands.map(function (a) {
+            return '<option value="' + escapeAttr(a.adrCode || a.id) + '">' + escapeHtml((a.adrCode || a.id) + ' ' + (a.title || '')) + '</option>';
+          }).join(''));
+        }).fail(function () { $('#tSupersede').html('<option value="">（加载失败）</option>'); });
+      });
+
+      function syncTransitFields() {
+        const target = $('#tTarget').val();
+        $('#tSupersedeWrap').toggleClass('d-none', target !== 'superseded');
+        $('#tReasonWrap').toggleClass('d-none', target !== 'deprecated');
+      }
+      $('#tTarget').on('change', syncTransitFields);
+
+      $('#transitBtn').on('click', function () {
+        const id = $('#tId').val();
+        const target = $('#tTarget').val();
+        if (!target) { alert('请选择目标状态'); return; }
+        const body = { target: target };
+        if (target === 'deprecated') {
+          const reason = $('#tReason').val().trim();
+          if (!reason) { alert('deprecateReason 必填（废弃说明）'); return; }
+          body.deprecateReason = reason;
+        }
+        if (target === 'superseded') {
+          const by = $('#tSupersede').val();
+          if (!by) { alert('supersededBy 必填（后继 ADR）'); return; }
+          body.supersededBy = by;
+        }
+        const $btn = $(this).prop('disabled', true);
+        API.bizPost('/api/v1/adrs/' + id + '/transit', body).done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('transitModal')).hide();
+            loadList();
+            showSyncHints(resp.data || {}, body);
+          } else { alert(rmsg(resp, '流转失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '流转失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // principleSyncHints：提示而不自动修改原则（AC-F4.2/F4.3，T27）
+      function showSyncHints(data, req) {
+        const hints = data.principleSyncHints;
+        if (!hints || !hints.length) return;
+        const chips = hints.map(function (h) {
+          return '<span class="p-chip">' + escapeHtml(h.code + ' ' + (h.title || '')) + '</span>';
+        }).join('');
+        $('#syncTip').removeClass('d-none').html(
+          '⚠ ' + escapeHtml((data.adrCode ? data.adrCode : '') + ' 已流转为 ' + (STATUS_TEXT[data.status] || data.status || ''))
+          + '，其关联原则可能需要同步更新（系统不会自动修改原则内容）：' + chips
+          + ' <button class="btn btn-sm btn-outline-primary py-0" id="gotoPrincipleBtn">前往原则管理</button>');
+      }
+      $('#syncTip').on('click', '#gotoPrincipleBtn', function () {
+        goPage('principle-list', '架构原则', 'pages/principle-list.html');
+      });
+
+      // ---- 删除 ----
+      $('#tbody').on('click', '.a-del', function () {
+        const id = $(this).data('id');
+        if (!confirm('确认删除该 ADR？删除后不可恢复。')) return;
+        API.bizDelete('/api/v1/adrs/' + id).done(function (resp) {
+          if (ok(resp)) loadList();
+          else { alert(rmsg(resp, '删除失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '删除失败')); });
+      });
+
+      // ---- 事件绑定 ----
+      $('#statusFilter').on('change', function () { state.status = $(this).val(); state.page = 1; loadList(); });
+      $('#principleFilter').on('change', function () { state.principleCode = $(this).val(); state.page = 1; loadList(); });
+      $('#searchBtn').on('click', function () { state.keyword = $('#keywordInput').val().trim(); state.page = 1; loadList(); });
+      $('#keywordInput').on('keydown', function (e) { if (e.key === 'Enter') $('#searchBtn').click(); });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+
+      // ---- 工具 ----
+      function goPage(key, title, page) {
+        if (window.self !== window.top && window.parent && window.parent.eaiselpNav) {
+          window.parent.eaiselpNav(key, title, page);
+        } else {
+          location.href = page.replace(/^pages\//, '');
+        }
+      }
+      function todayStr() {
+        const d = new Date();
+        const p = function (n) { return n < 10 ? '0' + n : n; };
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+      }
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function escapeAttr(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+
+      loadPrinciples(loadList);
+    });
+  </script>
+</body>
+</html>

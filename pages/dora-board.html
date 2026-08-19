@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>效能看板（DORA） - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .toolbar .ctl { display:flex; align-items:center; gap:6px; font-size:13px; color:#666; }
+    .metric-card { background:#fff; border-radius:8px; padding:16px 18px; height:100%; box-shadow:0 1px 2px rgba(0,0,0,.05); }
+    .metric-card.degraded { background:#fffbe6; }
+    .mc-head { display:flex; align-items:center; gap:6px; color:#666; font-size:13px; margin-bottom:10px; }
+    .mc-help { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; background:#eee; color:#888; font-size:11px; cursor:help; flex:none; }
+    .mc-value { font-size:26px; font-weight:700; color:#1677ff; line-height:1.25; word-break:break-all; }
+    .mc-value small { font-size:13px; color:#999; font-weight:400; margin-left:4px; }
+    .approx-mark { font-size:15px; color:#fa8c16; vertical-align:6px; margin-right:2px; font-weight:700; }
+    .band-badge { display:inline-block; padding:2px 10px; border-radius:10px; font-size:12px; font-weight:600; margin-left:8px; vertical-align:4px; }
+    .band-elite { background:#f6ffed; color:#52c41a; border:1px solid #b7eb8f; }
+    .band-high { background:#e6f4ff; color:#1677ff; border:1px solid #91caff; }
+    .band-medium { background:#fff7e6; color:#faad14; border:1px solid #ffd591; }
+    .band-low { background:#f5f5f5; color:#8c8c8c; border:1px solid #d9d9d9; }
+    .mc-sub { font-size:12px; color:#999; margin-top:8px; }
+    .mc-note { font-size:12px; color:#d46b08; margin-top:6px; }
+    .ref-card { background:#fff; border:1px dashed #d9d9d9; border-radius:8px; padding:10px 16px; font-size:13px; color:#666; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .panel { background:#fff; border-radius:8px; padding:48px 20px; text-align:center; color:#999; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏：维度 / 对象 / 时间范围 三级联动 -->
+    <div class="toolbar">
+      <h5 class="mb-0">效能看板（DORA）</h5>
+      <span class="text-muted" style="font-size:13px;">交付效能四指标 + 门禁打回率参考</span>
+      <div class="spacer"></div>
+      <label class="ctl">统计维度
+        <select id="scopeSelect" class="form-select form-select-sm" style="width:auto;">
+          <option value="all">租户（全部）</option>
+          <option value="program">项目群</option>
+          <option value="project">项目</option>
+        </select>
+      </label>
+      <label class="ctl d-none" id="scopeIdLabel">对象
+        <select id="scopeIdSelect" class="form-select form-select-sm" style="width:auto;min-width:200px;"></select>
+      </label>
+      <label class="ctl">时间范围
+        <select id="periodSelect" class="form-select form-select-sm" style="width:auto;">
+          <option value="7">近 7 天</option>
+          <option value="30" selected>近 30 天</option>
+          <option value="90">近 90 天</option>
+        </select>
+      </label>
+      <button id="refreshBtn" class="btn btn-outline-secondary btn-sm">刷新</button>
+    </div>
+
+    <!-- 分层开关关闭提示（43002） -->
+    <div id="layerTip" class="alert alert-warning d-none" style="font-size:13px;"></div>
+    <div id="errorTip" class="alert alert-danger d-none" style="font-size:13px;"></div>
+
+    <div id="loadingPanel" class="panel">加载中...</div>
+    <div id="emptyPanel" class="panel d-none"></div>
+    <div id="boardArea" class="d-none">
+      <div class="row g-3" id="cardsRow"></div>
+      <div class="mt-3" id="refBox"></div>
+      <div class="text-muted mt-2" style="font-size:12px;">统计结果缓存 5 分钟；未挂接项目的 Case 不计入任何维度。</div>
+    </div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const LAYER_TIP = '该层未启用，请联系管理员在分层设置中开启';
+
+      // ---- DORA 部署频率分档常量（与后端同口径，前端集中一处，tooltip 同口径）----
+      const DF_BANDS = [
+        { key: 'elite', label: '卓越', min: 1 },
+        { key: 'high', label: '高', min: 0.1 },
+        { key: 'medium', label: '中', min: 1 / 30 },
+        { key: 'low', label: '低', min: 0 }
+      ];
+      const DF_TIP = '口径：周期内首次流转 done 的去重 Case 数 ÷ 天数（无数据天计 0）。分档：≥1 次/天=卓越；≥0.1 次/天（约每周一次）=高；≥1/30 次/天（约每月一次）=中；更低=低。';
+      const LT_TIP = '口径：Case 从创建到首次流转 done 的时长。P50=线性插值（PERCENTILE.INC），P90=向上取整序位；无流转审计的历史 Case 排除，不以更新时间冒充。';
+      const CFR_TIP = '口径：分子=llm_review 终判 FAIL 步骤 ∪ auto_check 阻断（防双计），分母=终态编排 Case 去重数；FAIL_WARN 不计。门禁终判失败口径（代理指标）。';
+      const TTR_TIP = '口径：门禁打回 Case 的恢复时长=max(PASS 完成时间)−min(FAIL 完成时间)；终判失败 Case 不入样本；无埋点历史数据走近似口径（系统性偏大），以 ≈ 标注。';
+
+      function dfBandOf(value) {
+        if (value == null || isNaN(value)) return null;
+        for (let i = 0; i < DF_BANDS.length; i++) { if (value >= DF_BANDS[i].min) return DF_BANDS[i].key; }
+        return 'low';
+      }
+      function bandLabel(key) {
+        for (let i = 0; i < DF_BANDS.length; i++) { if (DF_BANDS[i].key === key) return DF_BANDS[i].label; }
+        return key || '-';
+      }
+      function bandBadge(band) {
+        if (!band) return '';
+        return '<span class="band-badge band-' + band + '" title="' + escapeAttr(DF_TIP) + '">' + bandLabel(band) + '</span>';
+      }
+
+      const state = { scope: 'all', scopeId: '', periodDays: 30 };
+      const scopeCache = { program: null, project: null };
+
+      // ---- 响应工具：兼容 code=0（平台旧壳）与 code=200（批B 契约）----
+      function ok(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
+      function isLayerOff(r) { return !!r && (r.code === 43001 || r.code === 43002); }
+      function xhrMsg(xhr, d) { return (xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || d || ('请求失败（' + xhr.status + '）'); }
+
+      function showLayerOff(r) {
+        $('#loadingPanel,#boardArea,#emptyPanel,#errorTip').addClass('d-none');
+        $('#layerTip').removeClass('d-none').text('⚠ ' + LAYER_TIP);
+      }
+      function showError(msg) {
+        $('#loadingPanel,#boardArea,#emptyPanel').addClass('d-none');
+        $('#errorTip').removeClass('d-none').text(msg);
+      }
+      function showArea(which) {
+        $('#layerTip,#errorTip').addClass('d-none');
+        $('#loadingPanel').toggleClass('d-none', which !== 'loading');
+        $('#emptyPanel').toggleClass('d-none', which !== 'empty');
+        $('#boardArea').toggleClass('d-none', which !== 'board');
+      }
+
+      // ---- 维度 / 对象 / 时间范围联动 ----
+      $('#scopeSelect').on('change', function () {
+        state.scope = $(this).val();
+        state.scopeId = '';
+        if (state.scope === 'all') { $('#scopeIdLabel').addClass('d-none'); loadDora(); return; }
+        $('#scopeIdLabel').removeClass('d-none');
+        loadScopeOptions(state.scope, function () {
+          if (!state.scopeId) {
+            showArea('empty');
+            $('#emptyPanel').text('暂无' + (state.scope === 'program' ? '项目群' : '项目') + '，请先在对应管理页创建后再查看效能看板');
+            return;
+          }
+          loadDora();
+        });
+      });
+
+      function loadScopeOptions(scope, cb) {
+        $('#scopeIdSelect').html('<option value="">加载中...</option>');
+        if (scopeCache[scope]) { fillScopeOptions(scope, cb); return; }
+        const path = scope === 'program' ? '/api/v1/programs?page=1&size=500' : '/api/v1/projects?page=1&size=500';
+        API.bizGet(path).done(function (resp) {
+          if (isLayerOff(resp)) { showLayerOff(resp); return; }
+          if (!ok(resp)) { showError(rmsg(resp, '对象清单加载失败')); return; }
+          const list = (resp.data && (resp.data.records || resp.data.list)) || [];
+          scopeCache[scope] = list.map(function (x) { return { id: x.id, name: x.name || ('#' + x.id) }; });
+          fillScopeOptions(scope, cb);
+        }).fail(function (xhr) { showError(xhrMsg(xhr, '对象清单加载失败')); });
+      }
+      function fillScopeOptions(scope, cb) {
+        const list = scopeCache[scope] || [];
+        const $sel = $('#scopeIdSelect').empty();
+        if (!list.length) {
+          $sel.append('<option value="">（空）</option>');
+          state.scopeId = '';
+          cb();
+          return;
+        }
+        list.forEach(function (x) {
+          $sel.append('<option value="' + escapeAttr(x.id) + '">' + escapeHtml('#' + x.id + ' ' + x.name) + '</option>');
+        });
+        state.scopeId = String(list[0].id);
+        cb();
+      }
+
+      $('#scopeIdSelect').on('change', function () {
+        state.scopeId = $(this).val();
+        if (state.scopeId) loadDora();
+      });
+      $('#periodSelect').on('change', function () {
+        state.periodDays = parseInt($(this).val(), 10) || 30;
+        loadDora();
+      });
+      $('#refreshBtn').on('click', loadDora);
+
+      // ---- 看板加载（GET /api/v1/metrics/dora）----
+      function loadDora() {
+        const params = new URLSearchParams();
+        params.set('scope', state.scope);
+        if (state.scope !== 'all') {
+          if (!state.scopeId) return;
+          params.set('scopeId', state.scopeId);
+        }
+        params.set('periodDays', state.periodDays);
+        showArea('loading');
+        API.bizGet('/api/v1/metrics/dora?' + params.toString()).done(function (resp) {
+          if (isLayerOff(resp)) { showLayerOff(resp); return; }
+          if (!ok(resp)) { showError(rmsg(resp, '加载失败')); return; }
+          renderBoard(resp.data || {});
+        }).fail(function (xhr) { showError(xhrMsg(xhr, '加载失败')); });
+      }
+
+      function renderBoard(d) {
+        if (d.emptyState) {
+          showArea('empty');
+          $('#emptyPanel').text(d.emptyState);
+          return;
+        }
+        showArea('board');
+
+        const cards = [];
+        // 1) 部署频率：数值 + band 徽章（后端缺省时按集中常量补算）
+        const df = d.deploymentFrequency;
+        if (df && df.value != null) {
+          const band = df.band || dfBandOf(df.value);
+          cards.push(metricCard('部署频率', DF_TIP,
+            fmtNum(df.value) + '<small>' + escapeHtml(df.unit || '次/天') + '</small>' + bandBadge(band),
+            '样本 ' + n(df.sampleCount) + ' 条'));
+        } else {
+          cards.push(emptyCard('部署频率', DF_TIP));
+        }
+
+        // 2) 变更前置时间：P50/P90 + M 条排除说明
+        const lt = d.leadTime;
+        if (lt && (lt.display || lt.p50Hours != null)) {
+          const main = lt.display || ('P50 ' + fmtNum(lt.p50Hours) + 'h / P90 ' + fmtNum(lt.p90Hours) + 'h');
+          const notes = [];
+          if ((lt.excludedCount || 0) > 0) {
+            notes.push(escapeHtml(lt.exclusionNote || ('另有 ' + lt.excludedCount + ' 条历史数据不可回溯，已排除')));
+          }
+          cards.push(metricCard('变更前置时间', LT_TIP,
+            '<span style="font-size:20px;">' + escapeHtml(main) + '</span>',
+            '样本 ' + n(lt.sampleCount) + ' 条' + ((lt.excludedCount || 0) > 0 ? ' · 已排除 ' + lt.excludedCount + ' 条' : ''), notes));
+        } else {
+          cards.push(emptyCard('变更前置时间', LT_TIP));
+        }
+
+        // 3) 变更失败率：parseErrorCount>0 时该卡降级"暂不可用"（不整页失败）
+        const cfr = d.changeFailureRate;
+        if (cfr && (cfr.parseErrorCount || 0) > 0) {
+          cards.push(metricCard('变更失败率', CFR_TIP,
+            '<span style="color:#fa8c16;">该项暂不可用</span>',
+            cfr.sampleCount != null ? '样本 ' + cfr.sampleCount + ' 条' : '',
+            [escapeHtml(cfr.parseErrorCount + ' 条 Case 的步骤数据解析失败，该项降级展示（不影响其他指标）')], true));
+        } else if (cfr && cfr.value != null) {
+          const pct = cfr.percentDisplay || ((cfr.value * 100).toFixed(1) + '%');
+          cards.push(metricCard('变更失败率', CFR_TIP,
+            escapeHtml(String(pct)),
+            '样本 ' + n(cfr.sampleCount) + ' 条 · ' + escapeHtml(cfr.proxyNote || '门禁终判失败口径（代理指标）')));
+        } else {
+          cards.push(emptyCard('变更失败率', CFR_TIP));
+        }
+
+        // 4) 恢复时间：approximateCount>0 时加 ≈ 角标
+        const ttr = d.timeToRestore;
+        if (ttr && ttr.p50Minutes != null) {
+          const approx = (ttr.approximateCount || 0) > 0;
+          const notes = [];
+          if (approx) notes.push(escapeHtml('含 ' + ttr.approximateCount + ' 条近似样本（无埋点历史数据以“末条完成−首条开始”估算，系统性偏大）'));
+          cards.push(metricCard('恢复时间', TTR_TIP,
+            (approx ? '<span class="approx-mark" title="含近似样本，口径见下方说明">≈</span>' : '')
+            + fmtNum(ttr.p50Minutes) + '<small>分钟（P50）</small>',
+            '样本 ' + n(ttr.sampleCount) + ' 条' + (ttr.avgMinutes != null ? ' · 均值 ' + fmtNum(ttr.avgMinutes) + ' 分钟' : ''), notes));
+        } else {
+          cards.push(emptyCard('恢复时间', TTR_TIP));
+        }
+
+        $('#cardsRow').html(cards.map(function (h) { return '<div class="col-md-3 col-6">' + h + '</div>'; }).join(''));
+
+        // 参考卡：门禁打回率（非四指标）
+        const gr = d.gateReworkRate;
+        $('#refBox').html(gr && gr.value != null
+          ? '<div class="ref-card"><span class="mc-help" title="门禁打回的 Case 占比，参考值，非 DORA 四指标">?</span>'
+            + '<strong>门禁打回率（参考）：</strong>'
+            + '<span style="color:#1677ff;font-weight:700;">' + escapeHtml(String(gr.percentDisplay || ((gr.value * 100).toFixed(1) + '%'))) + '</span>'
+            + (gr.note ? '<span class="text-muted">' + escapeHtml(gr.note) + '</span>' : '')
+            + '</div>'
+          : '');
+      }
+
+      function metricCard(name, tip, valueHtml, sub, notes, degraded) {
+        notes = notes || [];
+        return '<div class="metric-card' + (degraded ? ' degraded' : '') + '">'
+          + '<div class="mc-head">' + escapeHtml(name) + '<span class="mc-help" title="' + escapeAttr(tip) + '">?</span></div>'
+          + '<div class="mc-value">' + valueHtml + '</div>'
+          + '<div class="mc-sub">' + escapeHtml(sub || '') + '</div>'
+          + notes.map(function (x) { return '<div class="mc-note">' + x + '</div>'; }).join('')
+          + '</div>';
+      }
+      function emptyCard(name, tip) {
+        return metricCard(name, tip, '<span style="color:#bbb;font-size:20px;">暂无数据</span>', '完成 Case 后自动生成');
+      }
+      function n(v) { return v != null ? v : '-'; }
+      function fmtNum(v) {
+        if (v == null || isNaN(v)) return '-';
+        return String(Math.round(v * 100) / 100);
+      }
+
+      // ---- 工具 ----
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function escapeAttr(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+
+      loadDora();
+    });
+  </script>
+</body>
+</html>

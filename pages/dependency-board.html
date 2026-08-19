@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>依赖管理 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer, .spacer { flex:1; }
+    .nav-tabs .nav-link { cursor:pointer; }
+    .card-box { background:#fff; border-radius:8px; padding:16px 18px; margin-top:14px; }
+    .dep-arrow { color:#999; font-weight:700; margin:0 6px; }
+    .type-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+    .ty-blocks { background:#fff1f0; color:#ff4d4f; }
+    .ty-depends_on { background:#e6f4ff; color:#1677ff; }
+    .ty-relates_to { background:#f5f5f5; color:#8c8c8c; }
+    .status-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
+    .pr-planning { background:#f5f5f5; color:#999; }
+    .pr-in_progress { background:#e6f4ff; color:#1677ff; }
+    .pr-delivered { background:#f6ffed; color:#52c41a; }
+    .pr-closed { background:#f0f0f0; color:#888; }
+    .pr-unknown { background:#f5f5f5; color:#999; }
+    .empty-row td { text-align:center; color:#999; padding:32px 0; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:14px; }
+    .stat-chip { display:inline-block; background:#f0f5ff; color:#3f6ef5; border-radius:8px; padding:4px 12px; font-size:13px; margin-right:8px; }
+    .stat-chip.danger { background:#fff1f0; color:#ff4d4f; }
+    .proj-card { background:#fff; border:1px solid #eee; border-left:4px solid #d9d9d9; border-radius:6px; padding:12px 14px; height:100%; }
+    .proj-card.blocked { border-left-color:#ff4d4f; background:#fffafa; }
+    .proj-card .pc-name { font-weight:600; font-size:14px; }
+    .wf-line { font-size:13px; padding:3px 0; border-bottom:1px dashed #f5f5f5; }
+    .wf-line:last-child { border-bottom:none; }
+    .section-title { font-weight:600; font-size:12px; color:#999; margin:8px 0 2px; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <div class="toolbar">
+      <h5 class="mb-0">跨项目依赖管理</h5>
+      <span class="text-muted" style="font-size:13px;">blocks/depends_on 归一化存储；强依赖成环即拒绝登记</span>
+    </div>
+
+    <!-- 分层开关关闭提示（43002） -->
+    <div id="layerTip" class="alert alert-warning d-none" style="font-size:13px;"></div>
+
+    <div id="mainArea">
+      <ul class="nav nav-tabs" id="tabBar">
+        <li class="nav-item"><a class="nav-link active" data-tab="edges">依赖边列表</a></li>
+        <li class="nav-item"><a class="nav-link" data-tab="blocked">Blocked 看板</a></li>
+      </ul>
+
+      <!-- Tab 1：边列表 + 登记表单 -->
+      <div id="tabEdges">
+        <div class="card-box">
+          <div class="mb-2" style="font-weight:600;">新增依赖</div>
+          <div class="row g-2 align-items-end">
+            <div class="col-md-3">
+              <label class="form-label small mb-1">依赖方（from / A）</label>
+              <select id="fromSel" class="form-select form-select-sm"></select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small mb-1">被依赖方（to / B）</label>
+              <select id="toSel" class="form-select form-select-sm"></select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small mb-1">类型</label>
+              <select id="typeSel" class="form-select form-select-sm">
+                <option value="blocks">blocks（A 阻塞 B）</option>
+                <option value="depends_on">depends_on（A 依赖 B）</option>
+                <option value="relates_to">relates_to（弱关联）</option>
+              </select>
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small mb-1">说明（note）</label>
+              <input id="remarkInput" class="form-control form-control-sm" maxlength="500" placeholder="如：接口未就绪">
+            </div>
+            <div class="col-md-2">
+              <button id="addBtn" class="btn btn-primary btn-sm w-100">登记依赖</button>
+            </div>
+          </div>
+          <div id="cycleTip" class="alert mt-2 mb-0 py-2 d-none" style="font-size:13px;"></div>
+          <div class="text-muted mt-2" style="font-size:12px;">“blocks=A 阻塞 B”为快捷录入，登记后换向归一为 “B depends_on A” 存储；relates_to 不参与 blocked 判定与环检测；同对项目同类型强依赖不可重复登记。</div>
+        </div>
+
+        <div class="card-box">
+          <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
+            <span style="font-weight:600;">依赖边（依赖方视角）</span>
+            <div class="spacer"></div>
+            <select id="filterProject" class="form-select form-select-sm" style="width:auto;min-width:200px;"></select>
+            <select id="filterType" class="form-select form-select-sm" style="width:auto;">
+              <option value="">全部类型</option>
+              <option value="depends_on">强依赖（depends_on）</option>
+              <option value="relates_to">弱关联（relates_to）</option>
+            </select>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-bordered table-hover mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="width:70px;">ID</th>
+                  <th>方向（依赖方 → 被依赖方）</th>
+                  <th style="width:150px;">类型</th>
+                  <th>说明</th>
+                  <th style="width:150px;">创建时间</th>
+                  <th style="width:140px;">操作</th>
+                </tr>
+              </thead>
+              <tbody id="edgeTbody">
+                <tr class="empty-row"><td colspan="6">加载中...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="pager">
+            <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+            <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+            <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2：Blocked 看板 -->
+      <div id="tabBlocked" class="d-none">
+        <div class="card-box">
+          <div class="d-flex align-items-center flex-wrap mb-3">
+            <div id="boardStats"><span class="text-muted" style="font-size:13px;">加载中...</span></div>
+            <div class="spacer"></div>
+            <button id="fullCheckBtn" class="btn btn-outline-secondary btn-sm">全图体检（检测历史环）</button>
+          </div>
+          <div id="fullCheckBox" class="d-none mb-3"></div>
+          <div class="text-muted mb-2" style="font-size:12px;">blocked 判定：存在强依赖边（depends_on）P→Q 且 Q 未交付/未关闭；被依赖项目置 delivered/closed 后刷新即自动解除（展示层实时判定，不落库）。</div>
+          <div id="boardGrid" class="row g-3"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 编辑弹窗（方向不可改，改向=删旧建新） -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">编辑依赖</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="mb-2"><label class="form-label small">方向（不可修改）</label><input id="fDirection" class="form-control form-control-sm" readonly></div>
+        <div class="mb-2"><label class="form-label small">类型</label>
+          <select id="fType" class="form-select form-select-sm">
+            <option value="depends_on">depends_on（强依赖）</option>
+            <option value="relates_to">relates_to（弱关联）</option>
+          </select>
+        </div>
+        <div class="mb-2"><label class="form-label small">说明（note）</label><textarea id="fRemark" class="form-control form-control-sm" rows="3" maxlength="500"></textarea></div>
+        <div class="text-muted" style="font-size:12px;">编辑同样过环预检；方向不可改，改向请删除后重新登记。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const LAYER_TIP = '该层未启用，请联系管理员在分层设置中开启';
+      const TYPE_LABEL = { blocks: '硬阻塞（blocks）', depends_on: '依赖（depends_on）', relates_to: '关联（relates_to）' };
+      const TYPE_CLASS = { blocks: 'ty-blocks', depends_on: 'ty-depends_on', relates_to: 'ty-relates_to' };
+      const PR_TEXT = { planning: '规划中', in_progress: '进行中', delivered: '已交付', closed: '已关闭' };
+      const PR_CLASS = { planning: 'pr-planning', in_progress: 'pr-in_progress', delivered: 'pr-delivered', closed: 'pr-closed' };
+
+      const state = { page: 1, size: 20, total: 0, projectId: '', type: '' };
+      let projects = [];
+
+      // ---- 响应工具：兼容 code=0 与 code=200 ----
+      function ok(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
+      function isLayerOff(r) { return !!r && (r.code === 43001 || r.code === 43002); }
+      function xhrMsg(xhr, d) { return (xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || d || ('请求失败（' + xhr.status + '）'); }
+      function showLayerOff() {
+        $('#mainArea').addClass('d-none');
+        $('#layerTip').removeClass('d-none').text('⚠ ' + LAYER_TIP);
+      }
+
+      // ---- 初始化：项目清单（from/to 下拉 + 筛选）----
+      function loadProjects() {
+        API.bizGet('/api/v1/projects?page=1&size=500').done(function (resp) {
+          if (isLayerOff(resp)) { showLayerOff(); return; }
+          if (!ok(resp)) { alert(rmsg(resp, '项目清单加载失败')); return; }
+          projects = (resp.data && (resp.data.records || resp.data.list)) || [];
+          fillProjectSelects();
+          loadEdges();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '项目清单加载失败')); });
+      }
+      function fillProjectSelects() {
+        const opts = projects.map(function (p) {
+          return '<option value="' + escapeAttr(p.id) + '">' + escapeHtml('#' + p.id + ' ' + (p.name || '')) + '</option>';
+        }).join('');
+        const noOpt = projects.length ? '' : '<option value="">（暂无项目）</option>';
+        $('#fromSel,#toSel').html(noOpt || ('<option value="">选择项目...</option>' + opts));
+        const $f = $('#filterProject').html('<option value="">全部项目</option>' + opts);
+      }
+
+      // ---- Tab 切换 ----
+      $('#tabBar .nav-link').on('click', function (e) {
+        e.preventDefault();
+        $('#tabBar .nav-link').removeClass('active');
+        $(this).addClass('active');
+        const tab = $(this).data('tab');
+        $('#tabEdges').toggleClass('d-none', tab !== 'edges');
+        $('#tabBlocked').toggleClass('d-none', tab !== 'blocked');
+        if (tab === 'blocked') loadBoard();
+      });
+
+      // ---- 新增依赖：实时环预检（查询语义，成环也 200）----
+      $('#fromSel,#toSel,#typeSel').on('change', runCycleCheck);
+      function runCycleCheck() {
+        const $tip = $('#cycleTip').addClass('d-none').removeClass('alert-danger alert-warning');
+        $('#addBtn').prop('disabled', false);
+        const from = $('#fromSel').val();
+        const to = $('#toSel').val();
+        const type = $('#typeSel').val();
+        if (!from || !to) return;
+        if (from === to) {
+          $tip.removeClass('d-none').addClass('alert-danger')
+            .text('⚠ 禁止自依赖：from 与 to 不能相同');
+          $('#addBtn').prop('disabled', true);
+          return;
+        }
+        if (type === 'relates_to') return; // relates_to 不进环图，无需预检
+        API.bizGet('/api/v1/project-dependencies/cycle-check?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to))
+          .done(function (resp) {
+            if (!ok(resp)) return;
+            const d = resp.data || {};
+            if (d.wouldCycle) {
+              $tip.removeClass('d-none').addClass('alert-danger')
+                .html('⚠ 依赖成环，禁止登记：<strong>' + escapeHtml(d.pathDisplay || ((d.cyclePathIds || []).join('→'))) + '</strong>');
+              $('#addBtn').prop('disabled', true);
+            }
+          });
+      }
+
+      $('#addBtn').on('click', function () {
+        const from = $('#fromSel').val();
+        const to = $('#toSel').val();
+        const type = $('#typeSel').val();
+        if (!from || !to) { alert('请选择依赖双方项目'); return; }
+        if (from === to) { alert('禁止自依赖：from 与 to 不能相同'); return; }
+        const body = {
+          fromProjectId: parseInt(from, 10),
+          toProjectId: parseInt(to, 10),
+          dependencyType: type,
+          remark: $('#remarkInput').val().trim() || null
+        };
+        const $btn = $(this).prop('disabled', true);
+        API.bizPost('/api/v1/project-dependencies', body).done(function (resp) {
+          if (ok(resp)) {
+            $('#remarkInput').val('');
+            $('#cycleTip').addClass('d-none');
+            state.page = 1;
+            loadEdges();
+            loadBoard();
+          } else if (isLayerOff(resp)) { showLayerOff(); }
+          else { alert(rmsg(resp, '登记失败')); } // 400：成环（含路径）/重复/自依赖等，服务端消息直接展示
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '登记失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 边列表 ----
+      function loadEdges() {
+        $('#edgeTbody').html('<tr class="empty-row"><td colspan="6">加载中...</td></tr>');
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.projectId) params.set('projectId', state.projectId);
+        if (state.type) params.set('type', state.type);
+        API.bizGet('/api/v1/project-dependencies?' + params.toString()).done(function (resp) {
+          if (isLayerOff(resp)) { showLayerOff(); return; }
+          if (!ok(resp)) {
+            $('#edgeTbody').html('<tr class="empty-row"><td colspan="6">' + escapeHtml(rmsg(resp, '加载失败')) + '</td></tr>');
+            return;
+          }
+          const data = resp.data || {};
+          const list = data.records || data.list || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderEdges(list);
+          renderPager();
+        }).fail(function (xhr) {
+          $('#edgeTbody').html('<tr class="empty-row"><td colspan="6">' + escapeHtml(xhrMsg(xhr, '加载失败')) + '</td></tr>');
+        });
+      }
+
+      function edgeTypeBadge(e) {
+        const orig = e.origType || e.dependencyType;
+        const tip = (e.origType && e.origType !== e.dependencyType)
+          ? '原始表述 ' + e.origType + '，已归一化为 ' + e.dependencyType + ' 存储'
+          : ('类型：' + (TYPE_LABEL[e.dependencyType] || e.dependencyType));
+        return '<span class="type-badge ' + (TYPE_CLASS[orig] || 'ty-depends_on') + '" title="' + escapeAttr(tip) + '">'
+          + (TYPE_LABEL[orig] || escapeHtml(orig)) + '</span>';
+      }
+
+      function renderEdges(list) {
+        if (!list.length) {
+          $('#edgeTbody').html('<tr class="empty-row"><td colspan="6">暂无依赖边，可在上方登记第一条依赖</td></tr>');
+          return;
+        }
+        $('#edgeTbody').html(list.map(function (e) {
+          const remark = e.remark ? '<span title="' + escapeAttr(e.remark) + '">' + escapeHtml(e.remark) + '</span>' : '<span class="text-muted">-</span>';
+          return '<tr>'
+            + '<td>#' + escapeHtml(e.id) + '</td>'
+            + '<td><strong>' + escapeHtml(e.fromProjectName || ('#' + e.fromProjectId)) + '</strong>'
+            + '<span class="dep-arrow">→</span>'
+            + '<strong>' + escapeHtml(e.toProjectName || ('#' + e.toProjectId)) + '</strong>'
+            + (e.displayName ? ' <span class="text-muted" style="font-size:12px;" title="' + escapeAttr(e.displayName) + '">(' + escapeHtml(e.displayName) + ')</span>' : '')
+            + '</td>'
+            + '<td>' + edgeTypeBadge(e) + '</td>'
+            + '<td>' + remark + '</td>'
+            + '<td>' + escapeHtml(fmtTime(e.createTime)) + '</td>'
+            + '<td style="white-space:nowrap;">'
+            + '<button class="btn btn-sm btn-outline-secondary e-edit" data-id="' + e.id + '">编辑</button> '
+            + '<button class="btn btn-sm btn-outline-danger e-del" data-id="' + e.id + '">删除</button>'
+            + '</td></tr>';
+        }).join(''));
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + state.page + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', state.page <= 1);
+        $('#nextBtn').prop('disabled', state.page >= totalPages);
+      }
+
+      $('#filterProject').on('change', function () { state.projectId = $(this).val(); state.page = 1; loadEdges(); });
+      $('#filterType').on('change', function () { state.type = $(this).val(); state.page = 1; loadEdges(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadEdges(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadEdges(); }
+      });
+
+      // ---- 编辑（类型/说明；方向不可改；服务端过环预检）----
+      $('#edgeTbody').on('click', '.e-edit', function () {
+        const eid = $(this).data('id');
+        API.bizGet('/api/v1/project-dependencies?page=1&size=500').done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const list = (resp.data && (resp.data.records || resp.data.list)) || [];
+          const e = list.filter(function (x) { return String(x.id) === String(eid); })[0];
+          if (!e) { alert('该依赖边不存在（可能已被删除）'); loadEdges(); return; }
+          $('#fId').val(e.id);
+          $('#fDirection').val((e.fromProjectName || ('#' + e.fromProjectId)) + ' → ' + (e.toProjectName || ('#' + e.toProjectId)));
+          $('#fType').val(e.dependencyType === 'relates_to' ? 'relates_to' : 'depends_on');
+          $('#fRemark').val(e.remark || '');
+          $('#modalTitle').text('编辑依赖 #' + e.id);
+          new bootstrap.Modal('#editModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const body = { dependencyType: $('#fType').val(), remark: $('#fRemark').val().trim() || null };
+        const $btn = $(this).prop('disabled', true);
+        API.bizPut('/api/v1/project-dependencies/' + id, body).done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadEdges();
+            loadBoard();
+          } else if (isLayerOff(resp)) { showLayerOff(); }
+          else { alert(rmsg(resp, '保存失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '保存失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 删除（删后重登同对同类型=复活，id 复用）----
+      $('#edgeTbody').on('click', '.e-del', function () {
+        const eid = $(this).data('id');
+        if (!confirm('确认删除依赖边 #' + eid + '？删除后依赖解除；同对同类型可重新登记（id 复用）。')) return;
+        API.bizDelete('/api/v1/project-dependencies/' + eid).done(function (resp) {
+          if (ok(resp)) { loadEdges(); loadBoard(); }
+          else if (isLayerOff(resp)) { showLayerOff(); }
+          else { alert(rmsg(resp, '删除失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '删除失败')); });
+      });
+
+      // ---- Blocked 看板（展示层实时判定）----
+      function loadBoard() {
+        $('#boardStats').html('<span class="text-muted" style="font-size:13px;">加载中...</span>');
+        $('#boardGrid').html('');
+        API.bizGet('/api/v1/project-dependencies/board').done(function (resp) {
+          if (isLayerOff(resp)) { showLayerOff(); return; }
+          if (!ok(resp)) {
+            $('#boardStats').html('<span class="text-danger" style="font-size:13px;">' + escapeHtml(rmsg(resp, '看板加载失败')) + '</span>');
+            return;
+          }
+          renderBoard(resp.data || {});
+        }).fail(function (xhr) {
+          $('#boardStats').html('<span class="text-danger" style="font-size:13px;">' + escapeHtml(xhrMsg(xhr, '看板加载失败')) + '</span>');
+        });
+      }
+
+      function renderBoard(d) {
+        const st = d.stats || {};
+        $('#boardStats').html(
+          '<span class="stat-chip">项目 ' + (st.totalProjects != null ? st.totalProjects : '-') + '</span>'
+          + '<span class="stat-chip danger">被阻塞 ' + (st.blockedCount != null ? st.blockedCount : '-') + '</span>'
+          + '<span class="stat-chip">依赖边 ' + (st.edgeCount != null ? st.edgeCount : '-') + '</span>');
+        const list = (d.projects || []).slice().sort(function (a, b) { return (b.blocked ? 1 : 0) - (a.blocked ? 1 : 0); });
+        if (!list.length) {
+          $('#boardGrid').html('<div class="col-12 text-center text-muted py-4">暂无项目</div>');
+          return;
+        }
+        $('#boardGrid').html(list.map(function (p) {
+          const pst = p.status || 'unknown';
+          const srcs = (p.blockedSources || []).map(function (s) {
+            return '<div style="font-size:12px;color:#ff4d4f;">⚠ ' + escapeHtml(s) + '</div>';
+          }).join('');
+          const wf = (p.waitingFor || []).map(function (w) {
+            const name = w.toProjectName || ('#' + (w.toProjectId != null ? w.toProjectId : '?'));
+            const tlabel = TYPE_LABEL[w.origType || w.dependencyType] || '';
+            return '<div class="wf-line">← 等待 <strong>' + escapeHtml(name) + '</strong>'
+              + (tlabel ? '（' + escapeHtml(tlabel) + '）' : '')
+              + (w.remark ? '：' + escapeHtml(w.remark) : '') + '</div>';
+          }).join('');
+          const rf = (p.responsibleFor || []).map(function (r) {
+            const name = r.fromProjectName || r.projectName || ('#' + (r.fromProjectId != null ? r.fromProjectId : (r.projectId != null ? r.projectId : '?')));
+            return '<div class="wf-line">→ <strong>' + escapeHtml(name) + '</strong> 依赖本项目</div>';
+          }).join('');
+          return '<div class="col-md-4"><div class="proj-card' + (p.blocked ? ' blocked' : '') + '">'
+            + '<div class="pc-name">' + escapeHtml(p.projectName || ('#' + p.projectId))
+            + ' <span class="status-badge ' + (PR_CLASS[pst] || 'pr-unknown') + '">' + (PR_TEXT[pst] || pst) + '</span>'
+            + (p.blocked ? ' <span class="badge bg-danger">被阻塞</span>' : '')
+            + '</div>'
+            + srcs
+            + (wf ? '<div class="section-title">等待清单</div>' + wf : '')
+            + (rf ? '<div class="section-title">他方依赖本项目</div>' + rf : '')
+            + '</div></div>';
+        }).join(''));
+      }
+
+      // ---- 全图体检（历史脏数据环可见可治）----
+      $('#fullCheckBtn').on('click', function () {
+        const $box = $('#fullCheckBox').removeClass('d-none').html('<span class="text-muted" style="font-size:13px;">检测中...</span>');
+        API.bizGet('/api/v1/project-dependencies/full-check').done(function (resp) {
+          if (!ok(resp)) {
+            $box.html('<div class="alert alert-danger py-2 mb-0" style="font-size:13px;">' + escapeHtml(rmsg(resp, '体检失败')) + '</div>');
+            return;
+          }
+          const d = resp.data || {};
+          if (!d.cycleCount) {
+            $box.html('<div class="alert alert-success py-2 mb-0" style="font-size:13px;">✓ 未发现依赖环</div>');
+          } else {
+            $box.html('<div class="alert alert-danger py-2 mb-0" style="font-size:13px;">发现 '
+              + d.cycleCount + ' 个依赖环：'
+              + (d.cycles || []).map(function (c) { return escapeHtml(c.pathDisplay || (c.pathIds || []).join('→')); }).join('；')
+              + '</div>');
+          }
+        }).fail(function (xhr) {
+          $box.html('<div class="alert alert-danger py-2 mb-0" style="font-size:13px;">' + escapeHtml(xhrMsg(xhr, '体检失败')) + '</div>');
+        });
+      });
+
+      // ---- 工具 ----
+      function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function escapeAttr(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function fmtTime(t) {
+        if (!t) return '-';
+        const d = new Date(typeof t === 'string' ? t.replace('T', ' ') : t);
+        if (isNaN(d.getTime())) return String(t);
+        const p = function (n) { return n < 10 ? '0' + n : n; };
+        return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+          + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+      }
+
+      loadProjects();
+    });
+  </script>
+</body>
+</html>
