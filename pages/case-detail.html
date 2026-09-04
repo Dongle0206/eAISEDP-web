@@ -164,6 +164,7 @@
   <script src="../assets/js/api.js"></script>
   <!-- Markdown 渲染（产出摘要常含 Markdown）。库缺失时降级为纯文本 -->
   <script src="../assets/js/lib/marked.min.js"></script>
+ <script src="../assets/js/sanitize.js"></script>
   <script>
     $(function () {
       const API = window.EAISELP_API;
@@ -803,21 +804,9 @@
         } catch (e) { /* 降级纯文本 */ }
         return '<pre style="white-space:pre-wrap;background:transparent;border:none;padding:0;">' + escapeHtml(md) + '</pre>';
       }
-      // XSS 防护（#31）：LLM 产出渲染前清理 script/on事件/危险协议
-      function sanitizeHtml(html) {
-        var div = document.createElement('div');
-        div.innerHTML = html;
-        div.querySelectorAll('script,iframe,object,embed,link,style').forEach(function (n) { n.remove(); });
-        div.querySelectorAll('*').forEach(function (el) {
-          Array.prototype.slice.call(el.attributes).forEach(function (attr) {
-            var n = attr.name.toLowerCase(), v = String(attr.value).toLowerCase().trim();
-            if (n.startsWith('on') || (n === 'href' && v.startsWith('javascript:')) || (n === 'src' && v.startsWith('javascript:'))) {
-              el.removeAttribute(attr.name);
-            }
-          });
-        });
-        return div.innerHTML;
-      }
+      // XSS 防护（#31）：统一走公共 assets/js/sanitize.js（R2~R4 加固版：
+      // 控制字符归一+协议白名单/base+svg 删除/style 属性删除），未加载时由
+      // 上方 try-catch 降级 escapeHtml 纯文本（先例内联实现已收敛为公共版）
       function escapeHtml(s) {
         if (s == null) return '';
         return String(s).replace(/[&<>"']/g, function (ch) {
