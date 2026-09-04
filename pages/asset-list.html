@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>数据资产 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .tag-chip { display:inline-block; background:#f9f0ff; color:#722ed1; border-radius:9px; padding:1px 8px; font-size:12px; margin:1px 4px 1px 0; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .sec-title { font-weight:700; font-size:13px; color:#1677ff; margin-bottom:2px; }
+    .sec-body { font-size:13px; color:#333; background:#fafafa; border-radius:6px; padding:8px 12px; margin-bottom:10px; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏（四维筛选：类型/等级/标签/关键字） -->
+    <div class="toolbar">
+      <h5 class="mb-0">数据资产目录</h5>
+      <span class="text-muted" style="font-size:13px;">数据家底一张清单；敏感等级四档色阶（机密红色警示）</span>
+      <div class="spacer"></div>
+      <select id="typeFilter" class="form-select form-select-sm" style="width:auto;"></select>
+      <select id="sensFilter" class="form-select form-select-sm" style="width:auto;"></select>
+      <select id="tagFilter" class="form-select form-select-sm" style="width:auto;min-width:130px;">
+        <option value="">标签：不限</option>
+      </select>
+      <input id="keywordInput" class="form-control form-control-sm" style="width:170px;" placeholder="名称/系统关键字">
+      <button id="searchBtn" class="btn btn-outline-secondary btn-sm">搜索</button>
+      <button id="newBtn" class="btn btn-primary btn-sm" style="display:none;">+ 登记资产</button>
+    </div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>资产名称</th>
+            <th style="width:120px;">所属系统</th>
+            <th style="width:100px;">类型</th>
+            <th style="width:100px;">责任人</th>
+            <th style="width:100px;">敏感等级</th>
+            <th style="width:200px;">标签</th>
+            <th style="width:180px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="empty-row"><td colspan="7">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pager">
+      <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+      <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+      <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+      <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="10">10/页</option>
+        <option value="20">20/页</option>
+        <option value="50">50/页</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 详情弹窗（字段 + 关联质量规则与最近结果） -->
+  <div class="modal fade" id="viewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="viewTitle">资产详情</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="viewBody"></div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">关闭</button></div>
+    </div></div>
+  </div>
+
+  <!-- 新建/编辑弹窗 -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">登记资产</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="row">
+          <div class="col-6 mb-2"><label class="form-label small">所属系统 <span class="text-danger">*</span></label><input id="fSystem" class="form-control form-control-sm" maxlength="128" placeholder="如 ERP / CRM"></div>
+          <div class="col-6 mb-2"><label class="form-label small">资产名称 <span class="text-danger">*</span></label><input id="fName" class="form-control form-control-sm" maxlength="128" placeholder="如 t_order（同系统内唯一）"></div>
+        </div>
+        <div class="row">
+          <div class="col-4 mb-2"><label class="form-label small">资产类型 <span class="text-danger">*</span></label>
+            <select id="fType" class="form-select form-select-sm"></select></div>
+          <div class="col-4 mb-2"><label class="form-label small">敏感等级 <span class="text-danger">*</span></label>
+            <select id="fSens" class="form-select form-select-sm"></select></div>
+          <div class="col-4 mb-2"><label class="form-label small">责任人</label><input id="fOwner" class="form-control form-control-sm" maxlength="64" placeholder="如 张三"></div>
+        </div>
+        <div class="mb-2"><label class="form-label small">标签 <span class="text-muted">（逗号分隔，自由值）</span></label>
+          <input id="fTags" class="form-control form-control-sm" placeholder="如 客户数据,日报"></div>
+        <div class="mb-2"><label class="form-label small">描述</label>
+          <textarea id="fDesc" class="form-control form-control-sm" rows="3"></textarea></div>
+        <div class="text-muted" style="font-size:12px;">同系统同名资产不可重复登记（跨系统合法）；敏感等级为元数据标注，不做行级可见性。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/governance-dict.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      const DICT = window.GOV_DICT;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const state = { page: 1, size: 10, assetType: '', sensitivity: '', tag: '', keyword: '', total: 0 };
+      const knownTags = {};   // 标签候选聚合（列表数据自然扩展，无独立标签管理页 AC-F2.4）
+
+      // ---- 响应工具：兼容 code=0 与 code=200 ----
+      function ok(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
+      function xhrMsg(xhr, d) { return (xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || d || ('请求失败（' + xhr.status + '）'); }
+
+      // ---- 写权限：platform_admin/tenant_admin 可写；其余只读（后端 403 兜底） ----
+      API.current().done(function (resp) {
+        if (!ok(resp)) return;
+        const roles = ((resp.data || {}).roleCodes) || [];
+        const writable = roles.indexOf('platform_admin') !== -1 || roles.indexOf('tenant_admin') !== -1;
+        if (writable) { $('#newBtn').show(); $('#tbody').data('writable', 1); }
+      }).fail(function () { });
+
+      // ---- 筛选器（枚举文案引 governance-dict，禁止散落定义） ----
+      $('#typeFilter').html(DICT.options('assetType', '', '类型：不限'));
+      $('#sensFilter').html(DICT.options('sensitivity', '', '等级：不限'));
+      $('#fType').html(DICT.options('assetType', '', '（选择类型）'));
+      $('#fSens').html(DICT.options('sensitivity', '', '（选择等级）'));
+
+      function rebuildTagCandidates() {
+        const cur = $('#tagFilter').val() || '';
+        const tags = Object.keys(knownTags).sort();
+        $('#tagFilter').html('<option value="">标签：不限</option>' + tags.map(function (t) {
+          return '<option value="' + escAttr(t) + '"' + (t === cur ? ' selected' : '') + '>' + escHtml(t) + '</option>';
+        }).join(''));
+      }
+
+      // ---- 列表 ----
+      function loadList() {
+        $('#tbody').html('<tr class="empty-row"><td colspan="7">加载中...</td></tr>');
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.assetType) params.set('assetType', state.assetType);
+        if (state.sensitivity) params.set('sensitivity', state.sensitivity);
+        if (state.tag) params.set('tag', state.tag);
+        if (state.keyword) params.set('keyword', state.keyword);
+        API.bizGet('/api/v1/data-assets?' + params.toString()).done(function (resp) {
+          if (!ok(resp)) {
+            $('#tbody').html('<tr class="empty-row"><td colspan="7">' + escHtml(rmsg(resp, '加载失败')) + '</td></tr>');
+            $('#pageInfo').html('');
+            return;
+          }
+          const data = resp.data || {};
+          const list = data.records || data.list || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="7">' + escHtml(xhrMsg(xhr, '加载失败')) + '</td></tr>');
+        });
+      }
+
+      function renderTable(list) {
+        if (!list.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="7">暂无资产，点击右上角"登记资产"创建</td></tr>');
+          return;
+        }
+        const writable = $('#tbody').data('writable') === 1;
+        $('#tbody').html(list.map(function (a) {
+          (a.tags || []).forEach(function (t) { knownTags[t] = 1; });
+          const tags = (a.tags || []).map(function (t) {
+            return '<span class="tag-chip">' + escHtml(t) + '</span>';
+          }).join('') || '<span class="text-muted">-</span>';
+          const btns = ['<button class="btn btn-sm btn-outline-primary a-view" data-id="' + a.id + '">详情</button>'];
+          if (writable) {
+            btns.push('<button class="btn btn-sm btn-outline-secondary a-edit" data-id="' + a.id + '">编辑</button>');
+            btns.push('<button class="btn btn-sm btn-outline-danger a-del" data-id="' + a.id + '">删除</button>');
+          }
+          return '<tr>'
+            + '<td><strong>' + escHtml(a.assetName || '') + '</strong></td>'
+            + '<td>' + escHtml(a.systemName || '-') + '</td>'
+            + '<td>' + escHtml(DICT.text('assetType', a.assetType)) + '</td>'
+            + '<td>' + escHtml(a.owner || '-') + '</td>'
+            + '<td>' + DICT.badge('sensitivity', a.sensitivity) + '</td>'   // 四档色阶（机密红）
+            + '<td>' + tags + '</td>'
+            + '<td style="white-space:nowrap;">' + btns.join(' ') + '</td>'
+            + '</tr>';
+        }).join(''));
+        rebuildTagCandidates();
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + state.page + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', state.page <= 1);
+        $('#nextBtn').prop('disabled', state.page >= totalPages);
+      }
+
+      // ---- 详情（字段 + 关联质量规则数与各规则最近结果，AC-F2.6 Then）----
+      $('#tbody').on('click', '.a-view', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/data-assets/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const a = resp.data || {};
+          $('#viewTitle').html(escHtml(a.assetName || '') + ' <span class="text-muted">' + escHtml(a.systemName || '') + '</span> '
+            + DICT.badge('sensitivity', a.sensitivity));
+          const tags = (a.tags || []).map(function (t) { return '<span class="tag-chip">' + escHtml(t) + '</span>'; }).join('') || '<span class="text-muted">（无）</span>';
+          const rules = a.rules || { count: 0, items: [] };
+          const ruleRows = (rules.items || []).map(function (r) {
+            const res = r.lastResult ? DICT.badge('checkResult', r.lastResult) : '<span class="text-muted">未登记</span>';
+            const actual = r.lastActualValue != null ? r.lastActualValue : '-';
+            const time = r.lastCheckTime ? String(r.lastCheckTime).replace('T', ' ').substring(0, 19) : '-';
+            return '<tr><td>' + escHtml(r.ruleName || '') + '</td><td>' + escHtml(DICT.text('checkType', r.checkType)) + '</td>'
+              + '<td>' + escHtml(r.threshold != null ? r.threshold + '%' : '-') + '</td><td>' + res + '</td>'
+              + '<td>' + escHtml(String(actual)) + '</td><td>' + escHtml(time) + '</td></tr>';
+          }).join('');
+          $('#viewBody').html(
+            '<div class="sec-title">基本信息</div><div class="sec-body">'
+            + '资产类型：' + escHtml(DICT.text('assetType', a.assetType)) + ' · 责任人：' + escHtml(a.owner || '-')
+            + ' · 敏感等级：' + DICT.badge('sensitivity', a.sensitivity)
+            + '<br>描述：' + escHtml(a.description || '（未填写）') + '<br>标签：' + tags + '</div>'
+            + '<div class="sec-title">关联质量规则（' + (rules.count || 0) + ' 条）</div>'
+            + (rules.count ? '<table class="table table-sm table-bordered mb-0"><thead class="table-light"><tr>'
+              + '<th>规则名</th><th>检查类型</th><th>阈值</th><th>最近结果</th><th>实测值</th><th>检查时间</th></tr></thead>'
+              + '<tbody>' + ruleRows + '</tbody></table>' : '<div class="sec-body"><span class="text-muted">（暂无关联质量规则）</span></div>'));
+          new bootstrap.Modal('#viewModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      // ---- 新建 / 编辑 ----
+      $('#newBtn').on('click', function () {
+        $('#fId').val(''); $('#fSystem').val(''); $('#fName').val('');
+        $('#fType').val(''); $('#fSens').val(''); $('#fOwner').val('');
+        $('#fTags').val(''); $('#fDesc').val('');
+        $('#modalTitle').text('登记资产');
+        new bootstrap.Modal('#editModal').show();
+      });
+
+      $('#tbody').on('click', '.a-edit', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/data-assets/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const a = resp.data || {};
+          $('#fId').val(a.id);
+          $('#fSystem').val(a.systemName || '');
+          $('#fName').val(a.assetName || '');
+          $('#fType').val(a.assetType || '');
+          $('#fSens').val(a.sensitivity || '');
+          $('#fOwner').val(a.owner || '');
+          $('#fTags').val((a.tags || []).join(','));
+          $('#fDesc').val(a.description || '');
+          $('#modalTitle').text('编辑资产 ' + (a.assetName || ('#' + a.id)));
+          new bootstrap.Modal('#editModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const body = {
+          systemName: $('#fSystem').val().trim(),
+          assetName: $('#fName').val().trim(),
+          assetType: $('#fType').val(),
+          sensitivity: $('#fSens').val(),
+          owner: $('#fOwner').val().trim() || null,
+          description: $('#fDesc').val() || null,
+          tags: $('#fTags').val().split(/[,，]/).map(function (t) { return t.trim(); }).filter(function (t) { return t; })
+        };
+        if (!body.systemName) { alert('所属系统不能为空'); return; }
+        if (!body.assetName) { alert('资产名称不能为空'); return; }
+        if (!body.assetType) { alert('请选择资产类型'); return; }
+        if (!body.sensitivity) { alert('请选择敏感等级'); return; }
+        const $btn = $(this).prop('disabled', true);
+        const req = id ? API.bizPut('/api/v1/data-assets/' + id, body) : API.bizPost('/api/v1/data-assets', body);
+        req.done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadList();
+          } else { alert(rmsg(resp, '保存失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '保存失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 删除（联动：关联质量规则同步逻辑删，后端承载） ----
+      $('#tbody').on('click', '.a-del', function () {
+        const id = $(this).data('id');
+        if (!confirm('确认删除该资产？其关联的质量规则将同步删除（审计留痕）。')) return;
+        API.bizDelete('/api/v1/data-assets/' + id).done(function (resp) {
+          if (ok(resp)) loadList();
+          else { alert(rmsg(resp, '删除失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '删除失败')); });
+      });
+
+      // ---- 事件绑定 ----
+      $('#typeFilter').on('change', function () { state.assetType = $(this).val(); state.page = 1; loadList(); });
+      $('#sensFilter').on('change', function () { state.sensitivity = $(this).val(); state.page = 1; loadList(); });
+      $('#tagFilter').on('change', function () { state.tag = $(this).val(); state.page = 1; loadList(); });
+      $('#searchBtn').on('click', function () { state.keyword = $('#keywordInput').val().trim(); state.page = 1; loadList(); });
+      $('#keywordInput').on('keydown', function (e) { if (e.key === 'Enter') $('#searchBtn').click(); });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+
+      // ---- 工具 ----
+      function escHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function escAttr(s) { return escHtml(s); }
+
+      loadList();
+    });
+  </script>
+</body>
+</html>

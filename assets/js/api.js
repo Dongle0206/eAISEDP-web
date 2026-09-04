@@ -37,6 +37,19 @@
       }
       if (origError) origError(xhr);
     };
+    // T21（F3）：通用 40003 试用已到期处理——业务错误码随 HTTP 200 body 返回（R.fail 形态），
+    // 非登录页出现时清 token/提示并跳登录（登录页由 login.html 特判渲染红色升级指引，不在此处理）
+    const origSuccess = opt.success;
+    opt.success = function (resp) {
+      if (resp && resp.code === 40003 && location.pathname.indexOf(CFG.LOGIN_PAGE) === -1) {
+        clearToken();
+        try { sessionStorage.removeItem('trialTip'); } catch (e) { /* ignore */ }
+        window.alert(resp.msg || '试用已到期，请联系平台管理员升级');
+        location.href = CFG.LOGIN_PAGE;
+        return;
+      }
+      if (origSuccess) origSuccess.apply(this, arguments);
+    };
     return $.ajax(opt);
   }
 

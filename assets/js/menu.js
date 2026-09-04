@@ -15,7 +15,14 @@
     // R1 评审修复：ADR 库/技术雷达是租户级知识资产，不限层、全角色（engineer/PM/executive 等）可见（只读），
     // 从 tenant_admin 专属移入公共菜单；后端不注册 LayerGuard，任何开关组合下恒可用（AC-SWITCH.2）
     { key: 'adr-list', title: 'ADR 库', page: 'pages/adr-list.html' },
-    { key: 'radar', title: '技术雷达', page: 'pages/radar.html' }
+    { key: 'radar', title: '技术雷达', page: 'pages/radar.html' },
+    // case-20260820 T11（D-10）：L2 治理收口四域同为租户级知识资产/治理配置，不限层、全角色可见
+    // （PM/engineer/executive 只读——写按钮页内按角色隐藏、后端 403 兜底）；
+    // 不挂 layerHidden（AC-SWITCH.1：菜单不随层开关联动隐藏）
+    { key: 'standard-list', title: '工程标准', page: 'pages/standard-list.html' },
+    { key: 'template-list', title: '模板库', page: 'pages/template-list.html' },
+    { key: 'asset-list', title: '数据资产', page: 'pages/asset-list.html' },
+    { key: 'quality-rule-list', title: '质量规则', page: 'pages/quality-rule-list.html' }
   ];
 
   const ROLE_MENUS = {

@@ -595,6 +595,11 @@
           }
           if (s.gateResult === 'FAIL') {
             html += '<div style="font-size:10px;color:#ff4d4f;margin-top:2px;" title="' + escapeAttr(s.gateReason || '') + '">🛡 门禁拦截</div>';
+            // T15（AC-F1.8）：打回原因旁"依据标准"两跳解析占位——gateRuleId → 规则 name →
+            // standards?gateName=&status=published；无命中不渲染空占位（异步回填，见 fillGateStandardRefs）
+            if (s.gateRuleId != null) {
+              html += '<div class="gate-std-ref" data-ruleid="' + escapeAttr(s.gateRuleId) + '" style="font-size:10px;color:#722ed1;margin-top:2px;"></div>';
+            }
           }
           if (s.rerunCount > 0) {
             html += '<div style="font-size:10px;color:#faad14;">↻ 重做' + s.rerunCount + '次</div>';
@@ -612,6 +617,45 @@
         html += '</div>';
         $('#orchestrateSteps').html(html);
         $('#orchestrateProgress').removeClass('d-none');
+        fillGateStandardRefs();
+      }
+
+      // ---- T15（AC-F1.8，SE §4.5 两跳解析）：门禁打回展示"依据标准" ----
+      // steps_json 的 gateRuleId → GET /api/v1/gate-rules/{id} 取 name →
+      // GET /api/v1/standards?gateName={name}&status=published 取标准 → 打回原因旁渲染
+      // "依据标准：{code}《{title}》{version}"；无命中不渲染空占位；不改 steps_json 结构、
+      // 不改门禁判定（展示级打通）。轮询期间重复渲染 → 按 ruleId 缓存 Deferred 防重复请求。
+      var gateStdCache = {};
+      function resolveGateStandards(ruleId) {
+        if (gateStdCache[ruleId]) return gateStdCache[ruleId];
+        var d = $.Deferred();
+        API.bizGet('/api/v1/gate-rules/' + encodeURIComponent(ruleId)).done(function (resp) {
+          var name = (resp && resp.code === 0 && resp.data && resp.data.name) || '';
+          if (!name) { d.resolve([]); return; }
+          API.bizGet('/api/v1/standards?gateName=' + encodeURIComponent(name) + '&status=published&size=50')
+            .done(function (sr) {
+              var data = (sr && sr.code === 0 && sr.data) || {};
+              var recs = data.records || data.list || [];
+              // D-9 占位行（deleted=true）不进打回依据展示——已删标准不再作为"依据"（AC-F1.8 无命中口径）
+              d.resolve(recs.filter(function (s) { return s.deleted !== true; }));
+            })
+            .fail(function () { d.resolve([]); });
+        }).fail(function () { d.resolve([]); });
+        gateStdCache[ruleId] = d;
+        return d;
+      }
+
+      function fillGateStandardRefs() {
+        $('#orchestrateSteps .gate-std-ref').each(function () {
+          var $el = $(this);
+          resolveGateStandards($el.data('ruleid')).done(function (stds) {
+            if (!stds.length) { $el.remove(); return; }   // 无命中不渲染空占位（AC-F1.8）
+            var text = stds.map(function (s) {
+              return escapeHtml(s.standardCode || '') + '《' + escapeHtml(s.title || '') + '》' + escapeHtml(s.version || '');
+            }).join('；');
+            $el.html('📋 依据标准：' + text);
+          });
+        });
       }
 
       // D5 注入清单卡片：解析 injectedPrinciplesJson（原则 code 数组的 JSON 串），

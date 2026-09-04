@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>工程标准 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .code-chip { font-family:Consolas,monospace; font-weight:700; color:#1677ff; }
+    .p-chip { display:inline-block; background:#f9f0ff; color:#722ed1; border-radius:9px; padding:1px 8px; font-size:12px; margin:1px 4px 1px 0; }
+    .g-chip { display:inline-block; background:#f6ffed; color:#52c41a; border-radius:9px; padding:1px 8px; font-size:12px; margin:1px 4px 1px 0; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .sec-title { font-weight:700; font-size:13px; color:#1677ff; margin-bottom:2px; }
+    .sec-body { font-size:13px; color:#333; background:#fafafa; border-radius:6px; padding:8px 12px; margin-bottom:10px; }
+    .md-body { font-size:13px; }
+    .md-body pre { background:#f5f5f5; padding:8px; border-radius:6px; overflow:auto; }
+    .ck-box { display:inline-block; border:1px solid #d3adf7; border-radius:8px; padding:3px 10px; margin:0 6px 6px 0; font-size:13px; cursor:pointer; }
+    .ck-gate { border-color:#b7eb8f; }
+    .ck-box input { margin-right:4px; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">工程标准库</h5>
+      <span class="text-muted" style="font-size:13px;">编号/版本/生命周期管理；发布新版自动取代旧版；标准不限分层</span>
+      <div class="spacer"></div>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">状态：</span>
+        <select id="statusFilter" class="form-select form-select-sm" style="width:auto;">
+          <option value="">进行中（draft+published）</option>
+          <option value="draft">草稿</option>
+          <option value="published">已发布</option>
+          <option value="deprecated">已废弃</option>
+          <option value="draft,published,deprecated">全部（含废弃）</option>
+        </select>
+      </label>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">关联原则：</span>
+        <select id="principleFilter" class="form-select form-select-sm" style="width:auto;min-width:150px;">
+          <option value="">不限</option>
+        </select>
+      </label>
+      <input id="keywordInput" class="form-control form-control-sm" style="width:180px;" placeholder="标题关键字">
+      <button id="searchBtn" class="btn btn-outline-secondary btn-sm">搜索</button>
+      <button id="newBtn" class="btn btn-primary btn-sm gov-write" style="display:none;">+ 新建标准</button>
+    </div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:110px;">编号</th>
+            <th>标题</th>
+            <th style="width:80px;">版本</th>
+            <th style="width:90px;">状态</th>
+            <th style="width:180px;">关联原则</th>
+            <th style="width:110px;">被引用门禁</th>
+            <th style="width:300px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="empty-row"><td colspan="7">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pager">
+      <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+      <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+      <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+      <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="10">10/页</option>
+        <option value="20">20/页</option>
+        <option value="50">50/页</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 详情弹窗（五要素 + 正文 markdown + 双向关联区） -->
+  <div class="modal fade" id="viewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="viewTitle">标准详情</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="viewBody"></div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">关闭</button></div>
+    </div></div>
+  </div>
+
+  <!-- 新建/编辑弹窗 -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">新建标准</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="row">
+          <div class="col-4 mb-2"><label class="form-label small">编号 <span class="text-muted">（留空自动生成 STD-NNNN）</span></label><input id="fCode" class="form-control form-control-sm" maxlength="64" placeholder="如 STD-0001"></div>
+          <div class="col-5 mb-2"><label class="form-label small">标题 <span class="text-danger">*</span></label><input id="fTitle" class="form-control form-control-sm" maxlength="200"></div>
+          <div class="col-3 mb-2"><label class="form-label small">版本 <span class="text-danger">*</span></label><input id="fVersion" class="form-control form-control-sm" maxlength="32" placeholder="如 v1.0"></div>
+        </div>
+        <div class="mb-2"><label class="form-label small">正文（markdown）<span class="text-danger">*</span></label>
+          <textarea id="fContent" class="form-control form-control-sm" rows="8" placeholder="# 第1章 ..."></textarea></div>
+        <div class="mb-2"><label class="form-label small">关联架构原则（多选，保存时校验存在性）</label><div id="principleBoxes"><span class="text-muted">加载中...</span></div></div>
+        <div class="mb-2"><label class="form-label small">关联门禁规则（多选，仅列启用中规则）</label><div id="gateBoxes"><span class="text-muted">加载中...</span></div></div>
+        <div class="text-muted" style="font-size:12px;">创建后默认 draft；draft 可编辑全部字段；发布/废弃走"流转"；发布新版=升版入口（同编号新版本）。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <!-- 状态流转弹窗（发布/废弃） -->
+  <div class="modal fade" id="transitModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="transitTitle">状态流转</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="tId">
+        <div class="mb-2"><label class="form-label small">目标状态 <span class="text-danger">*</span></label>
+          <select id="tTarget" class="form-select form-select-sm"></select>
+        </div>
+        <div class="mb-2 d-none" id="tReasonWrap"><label class="form-label small">废弃原因（deprecateReason）<span class="text-danger">*</span></label>
+          <textarea id="tReason" class="form-control form-control-sm" rows="3" placeholder="如：已被 v2.0 取代 / 内容过时"></textarea>
+        </div>
+        <div class="text-muted" style="font-size:12px;">状态机：draft→published（发布，同编号旧 published 自动废弃）；draft/published→deprecated（必填原因）；deprecated 为终态不可回退。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="transitBtn" class="btn btn-primary btn-sm">确认流转</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../assets/js/lib/marked.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/governance-dict.js"></script>
+  <script src="../assets/js/sanitize.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      const DICT = window.GOV_DICT;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      // 状态机（契约 §1 S6）：draft→published/deprecated；published→deprecated；deprecated 终态
+      const TRANSITS = {
+        draft: [
+          { to: 'published', label: '发布（published）' },
+          { to: 'deprecated', label: '作废（deprecated，必填原因）' }
+        ],
+        published: [
+          { to: 'deprecated', label: '废弃（deprecated，必填原因）' }
+        ],
+        deprecated: []
+      };
+
+      const state = { page: 1, size: 10, status: '', principleCode: '', keyword: '', total: 0 };
+      let principles = [];
+      let enabledGates = [];
+
+      // ---- 响应工具：兼容 code=0 与 code=200 ----
+      function ok(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
+      function xhrMsg(xhr, d) { return (xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || d || ('请求失败（' + xhr.status + '）'); }
+
+      // ---- 写权限：platform_admin/tenant_admin 可写；PM/engineer/executive 只读（后端 403 兜底） ----
+      API.current().done(function (resp) {
+        if (!ok(resp)) return;
+        const roles = ((resp.data || {}).roleCodes) || [];
+        const writable = roles.indexOf('platform_admin') !== -1 || roles.indexOf('tenant_admin') !== -1;
+        if (writable) {
+          $('#newBtn').show();
+          $('#tbody .gov-write').show();
+        }
+        $('#tbody').data('writable', writable ? 1 : 0);
+      }).fail(function () { /* 保持隐藏，后端 403 兜底 */ });
+
+      // ---- 原则清单（筛选 + 弹窗多选）----
+      function loadPrinciples(cb) {
+        if (principles.length) { if (cb) cb(); return; }
+        API.bizGet('/api/v1/principles').done(function (resp) {
+          if (ok(resp)) principles = resp.data || [];
+          $('#principleFilter').append(principles.map(function (p) {
+            return '<option value="' + escAttr(p.code) + '">' + escHtml(p.code + ' ' + (p.title || '')) + '</option>';
+          }).join(''));
+          if (cb) cb();
+        }).fail(function () { if (cb) cb(); });
+      }
+
+      // ---- 启用中的门禁规则（关联选择器仅列 enabled，§4.5 翻译口径）----
+      function loadEnabledGates(cb) {
+        if (enabledGates.length) { if (cb) cb(); return; }
+        API.bizGet('/api/v1/gate-rules?enabled=1').done(function (resp) {
+          if (ok(resp)) enabledGates = (resp.data || []);
+          if (cb) cb();
+        }).fail(function () { if (cb) cb(); });
+      }
+
+      function renderBoxes(selectedPrinciples, selectedGates) {
+        selectedPrinciples = selectedPrinciples || [];
+        selectedGates = selectedGates || [];
+        $('#principleBoxes').html(principles.length ? principles.map(function (p) {
+          const checked = selectedPrinciples.indexOf(p.code) !== -1 ? ' checked' : '';
+          return '<label class="ck-box"><input type="checkbox" class="p-ck" value="' + escAttr(p.code) + '"' + checked + '>'
+            + escHtml(p.code + ' ' + (p.title || '')) + '</label>';
+        }).join('') : '<span class="text-muted">暂无原则（可在"架构原则"页创建后再关联）</span>');
+        $('#gateBoxes').html(enabledGates.length ? enabledGates.map(function (g) {
+          const checked = selectedGates.indexOf(g.name) !== -1 ? ' checked' : '';
+          return '<label class="ck-box ck-gate"><input type="checkbox" class="g-ck" value="' + escAttr(g.name) + '"' + checked + '>'
+            + escHtml(g.name) + '</label>';
+        }).join('') : '<span class="text-muted">暂无启用中的门禁规则</span>');
+      }
+      function collectChecked(cls) {
+        const arr = [];
+        $('#editModal ' + cls + ':checked').each(function () { arr.push($(this).val()); });
+        return arr;
+      }
+
+      // ---- 列表 ----
+      function loadList() {
+        $('#tbody').html('<tr class="empty-row"><td colspan="7">加载中...</td></tr>');
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.status) params.set('status', state.status);
+        if (state.principleCode) params.set('principleCode', state.principleCode);
+        if (state.keyword) params.set('keyword', state.keyword);
+        API.bizGet('/api/v1/standards?' + params.toString()).done(function (resp) {
+          if (!ok(resp)) {
+            $('#tbody').html('<tr class="empty-row"><td colspan="7">' + escHtml(rmsg(resp, '加载失败')) + '</td></tr>');
+            $('#pageInfo').html('');
+            return;
+          }
+          const data = resp.data || {};
+          const list = data.records || data.list || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="7">' + escHtml(xhrMsg(xhr, '加载失败')) + '</td></tr>');
+        });
+      }
+
+      function renderTable(list) {
+        if (!list.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="7">暂无标准，点击右上角"新建标准"创建</td></tr>');
+          return;
+        }
+        $('#tbody').html(list.map(function (s) {
+          const st = s.status || '';
+          const pcs = (s.relatedPrincipleCodes || []).map(function (c) {
+            return '<span class="p-chip">' + escHtml(c) + '</span>';
+          }).join('') || '<span class="text-muted">-</span>';
+          const gateCount = (s.relatedGateNames || []).length;
+          const gateCell = gateCount ? '<span class="g-chip">' + gateCount + ' 个</span>' : '<span class="text-muted">-</span>';
+          const btns = ['<button class="btn btn-sm btn-outline-primary a-view" data-id="' + s.id + '">详情</button>'];
+          const writable = $('#tbody').data('writable') === 1;
+          if (st === 'draft' && writable) {
+            btns.push('<button class="btn btn-sm btn-outline-secondary a-edit" data-id="' + s.id + '">编辑</button>');
+          }
+          if (writable) {
+            btns.push('<button class="btn btn-sm btn-outline-secondary a-upgrade" data-id="' + s.id + '" data-code="' + escAttr(s.standardCode || '') + '" title="预填同编号新建 draft 版本">升版</button>');
+          }
+          if ((TRANSITS[st] || []).length && writable) {
+            btns.push('<button class="btn btn-sm btn-outline-success a-transit" data-id="' + s.id + '" data-status="' + escAttr(st) + '">流转</button>');
+          }
+          if (writable) {
+            btns.push('<button class="btn btn-sm btn-outline-danger a-del" data-id="' + s.id + '">删除</button>');
+          }
+          return '<tr>'
+            + '<td><span class="code-chip">' + escHtml(s.standardCode || ('#' + s.id)) + '</span></td>'
+            + '<td><strong>' + escHtml(s.title || '') + '</strong></td>'
+            + '<td>' + escHtml(s.version || '-') + '</td>'
+            + '<td>' + DICT.badge('standardStatus', st) + '</td>'
+            + '<td>' + pcs + '</td>'
+            + '<td>' + gateCell + '</td>'
+            + '<td style="white-space:nowrap;">' + btns.join(' ') + '</td>'
+            + '</tr>';
+        }).join(''));
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + state.page + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', state.page <= 1);
+        $('#nextBtn').prop('disabled', state.page >= totalPages);
+      }
+
+      // ---- 详情（五要素 + markdown 预览 + 双向关联区）----
+      $('#tbody').on('click', '.a-view', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/standards/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const s = resp.data || {};
+          const st = s.status || '';
+          $('#viewTitle').html('<span class="code-chip">' + escHtml(s.standardCode || ('#' + s.id)) + '</span> '
+            + escHtml(s.title || '') + ' <span class="text-muted">' + escHtml(s.version || '') + '</span> '
+            + DICT.badge('standardStatus', st));
+          const pcs = (s.relatedPrincipleCodes || []).map(function (c) { return '<span class="p-chip">' + escHtml(c) + '</span>'; }).join('') || '<span class="text-muted">（无）</span>';
+          // T13/T14 补漏：优先用 S3 referencedByGates（解析规则当前信息；悬空 name "已删除"占位），
+          // 旧字段缺失时回退 relatedGateNames 原名 chips
+          let gcs;
+          if (Array.isArray(s.referencedByGates) && s.referencedByGates.length) {
+            gcs = s.referencedByGates.map(function (g) {
+              return g.deleted
+                ? '<span class="g-chip" style="background:#f5f5f5;color:#999;text-decoration:line-through;" title="规则已删除或改名">' + escHtml(g.name) + '（已删除）</span>'
+                : '<span class="g-chip"' + (g.enabled === 0 ? ' style="opacity:.6;" title="规则已停用"' : '') + '>' + escHtml(g.name) + '</span>';
+            }).join('');
+          } else {
+            gcs = (s.relatedGateNames || []).map(function (n) { return '<span class="g-chip">' + escHtml(n) + '</span>'; }).join('') || '<span class="text-muted">（无）</span>';
+          }
+          $('#viewBody').html(
+            '<div class="sec-title">正文（markdown 预览）</div><div class="sec-body md-body">' + renderMd(s.content) + '</div>'
+            + '<div class="sec-title">关联架构原则</div><div class="sec-body">' + pcs + '</div>'
+            + '<div class="sec-title">被引用门禁规则</div><div class="sec-body">' + gcs + '</div>'
+            + '<div class="text-muted" style="font-size:13px;">'
+            + '创建人：' + escHtml(s.createBy || '-') + ' · 创建时间：' + escHtml(fmtTime(s.createTime) || '-')
+            + (s.deprecateReason ? ' · 废弃原因：' + escHtml(s.deprecateReason) : '')
+            + '</div>');
+          new bootstrap.Modal('#viewModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      // H1（安全评审）：markdown 正文为用户输入，marked 默认放行内联 HTML——渲染产物必须过
+      // 公共 DOM 清洗 assets/js/sanitize.js（复刻 case-detail.html:807 先例）才能注入 innerHTML。
+      // 攻击样例自测说明（清洗后均不触发；注：闭合标签以 <\/script> 转义书写，防 HTML 截断）：
+      //   1) <img src=x onerror=alert(1)>           → onerror 属性被剥除，仅剩 <img src="x">
+      //   2) <scr<script>ipt>alert(1)<\/script>     → DOM 解析后 script 节点整体移除（嵌套构造失效）
+      //   3) <a href="javascript:alert(1)">x</a>    → javascript: 协议被剥除，只剩裸链接文本
+      //   4) <iframe src="javascript:alert(1)">     → iframe 节点整体删除
+      function renderMd(md) {
+        if (!md) return '<span class="text-muted">（未填写）</span>';
+        let html;
+        try {
+          html = (window.marked && typeof window.marked.parse === 'function') ? window.marked.parse(String(md)) : escHtml(md);
+        } catch (e) { html = escHtml(md); }
+        return (typeof window.sanitizeHtml === 'function') ? window.sanitizeHtml(html) : escHtml(md);
+      }
+
+      // ---- 新建 / 编辑 / 升版 ----
+      function openEdit(prefill) {
+        prefill = prefill || {};
+        $('#fId').val(prefill.id || '');
+        $('#fCode').val(prefill.standardCode || '').prop('disabled', !!prefill.id);
+        $('#fTitle').val(prefill.title || '');
+        $('#fVersion').val(prefill.version || '');
+        $('#fContent').val(prefill.content || '');
+        renderBoxes(prefill.relatedPrincipleCodes || [], prefill.relatedGateNames || []);
+        $('#modalTitle').text(prefill.id ? '编辑标准 ' + (prefill.standardCode || ('#' + prefill.id))
+          : (prefill.standardCode ? '升版：' + prefill.standardCode + '（新建 draft 新版本）' : '新建标准'));
+        new bootstrap.Modal('#editModal').show();
+      }
+
+      $('#newBtn').on('click', function () { openEdit(null); });
+
+      $('#tbody').on('click', '.a-edit', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/standards/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const s = resp.data || {};
+          if (s.status !== 'draft') { alert('发布后不可编辑，请升版'); return; }
+          openEdit(s);
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      // 升版入口：预填同 code 新建 draft（版本需变更）
+      $('#tbody').on('click', '.a-upgrade', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/standards/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const s = resp.data || {};
+          const prefill = {
+            standardCode: s.standardCode,
+            title: s.title,
+            version: '',
+            content: s.content,
+            relatedPrincipleCodes: s.relatedPrincipleCodes,
+            relatedGateNames: s.relatedGateNames
+          };
+          openEdit(prefill);
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const version = $('#fVersion').val().trim();
+        if (id && !version) { /* 编辑必填同新建 */ }
+        const body = {
+          standardCode: $('#fCode').val().trim() || null,
+          title: $('#fTitle').val().trim(),
+          version: version,
+          content: $('#fContent').val(),
+          relatedPrincipleCodes: collectChecked('.p-ck'),
+          relatedGateNames: collectChecked('.g-ck')
+        };
+        if (!body.title) { alert('标题不能为空'); return; }
+        if (!body.version) { alert('版本不能为空'); return; }
+        if (!body.content || !body.content.trim()) { alert('正文不能为空'); return; }
+        const $btn = $(this).prop('disabled', true);
+        const req = id ? API.bizPut('/api/v1/standards/' + id, body) : API.bizPost('/api/v1/standards', body);
+        req.done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadList();
+          } else { alert(rmsg(resp, '保存失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '保存失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 状态流转（发布/废弃；废弃必填原因）----
+      $('#tbody').on('click', '.a-transit', function () {
+        const id = $(this).data('id');
+        const st = $(this).data('status');
+        const opts = TRANSITS[st] || [];
+        if (!opts.length) { alert('deprecated 为终态，不可流转'); return; }
+        $('#tId').val(id);
+        $('#tTarget').html(opts.map(function (t) {
+          return '<option value="' + t.to + '">' + escHtml(t.label) + '</option>';
+        }).join(''));
+        $('#tReason').val('');
+        $('#transitTitle').text('状态流转（当前：' + DICT.text('standardStatus', st) + '）');
+        syncTransitFields();
+        new bootstrap.Modal('#transitModal').show();
+      });
+
+      function syncTransitFields() {
+        $('#tReasonWrap').toggleClass('d-none', $('#tTarget').val() !== 'deprecated');
+      }
+      $('#tTarget').on('change', syncTransitFields);
+
+      $('#transitBtn').on('click', function () {
+        const id = $('#tId').val();
+        const target = $('#tTarget').val();
+        if (!target) { alert('请选择目标状态'); return; }
+        const body = { target: target };
+        if (target === 'deprecated') {
+          const reason = $('#tReason').val().trim();
+          if (!reason) { alert('废弃原因必填'); return; }
+          body.deprecateReason = reason;
+        }
+        const $btn = $(this).prop('disabled', true);
+        API.bizPost('/api/v1/standards/' + id + '/transit', body).done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('transitModal')).hide();
+            loadList();
+          } else { alert(rmsg(resp, '流转失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '流转失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 删除 ----
+      $('#tbody').on('click', '.a-del', function () {
+        const id = $(this).data('id');
+        if (!confirm('确认删除该标准？删除后列表不可见、审计留痕。')) return;
+        API.bizDelete('/api/v1/standards/' + id).done(function (resp) {
+          if (ok(resp)) loadList();
+          else { alert(rmsg(resp, '删除失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '删除失败')); });
+      });
+
+      // ---- 事件绑定 ----
+      $('#statusFilter').on('change', function () { state.status = $(this).val(); state.page = 1; loadList(); });
+      $('#principleFilter').on('change', function () { state.principleCode = $(this).val(); state.page = 1; loadList(); });
+      $('#searchBtn').on('click', function () { state.keyword = $('#keywordInput').val().trim(); state.page = 1; loadList(); });
+      $('#keywordInput').on('keydown', function (e) { if (e.key === 'Enter') $('#searchBtn').click(); });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+
+      // ---- 工具 ----
+      function fmtTime(t) {
+        if (!t) return '';
+        return String(t).replace('T', ' ').substring(0, 19);
+      }
+      function escHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function escAttr(s) { return escHtml(s); }
+
+      loadPrinciples(function () {
+        loadEnabledGates(function () {
+          renderBoxes([], []);
+          loadList();
+        });
+      });
+    });
+  </script>
+</body>
+</html>

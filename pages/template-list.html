@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>模板库 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .type-chip { display:inline-block; background:#e6f4ff; color:#1677ff; border-radius:9px; padding:1px 8px; font-size:12px; }
+    .ph-chip { display:inline-block; background:#f9f0ff; color:#722ed1; border-radius:9px; padding:1px 8px; font-size:12px; margin:1px 4px 1px 0; font-family:Consolas,monospace; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .sec-title { font-weight:700; font-size:13px; color:#1677ff; margin-bottom:2px; }
+    .sec-body { font-size:13px; color:#333; background:#fafafa; border-radius:6px; padding:8px 12px; margin-bottom:10px; }
+    .md-body pre { background:#f5f5f5; padding:8px; border-radius:6px; overflow:auto; }
+    .tpl-switch { cursor:pointer; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">模板库</h5>
+      <span class="text-muted" style="font-size:13px;">开放类型字典 + {{占位符}}清单；本期内仅管理，不做编排注入</span>
+      <div class="spacer"></div>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">类型：</span>
+        <select id="typeFilter" class="form-select form-select-sm" style="width:auto;min-width:140px;">
+          <option value="">全部类型</option>
+        </select>
+      </label>
+      <input id="keywordInput" class="form-control form-control-sm" style="width:180px;" placeholder="名称关键字">
+      <label class="mb-0 d-flex align-items-center" style="gap:4px;font-size:13px;">
+        <input type="checkbox" id="includeDisabled"> 含停用
+      </label>
+      <button id="searchBtn" class="btn btn-outline-secondary btn-sm">搜索</button>
+      <button id="newBtn" class="btn btn-primary btn-sm" style="display:none;">+ 新建模板</button>
+    </div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:130px;">类型</th>
+            <th>名称</th>
+            <th style="width:90px;">版本</th>
+            <th style="width:100px;">启用</th>
+            <th style="width:110px;">占位符数</th>
+            <th style="width:300px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="empty-row"><td colspan="6">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pager">
+      <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+      <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+      <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+      <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="10">10/页</option>
+        <option value="20">20/页</option>
+        <option value="50">50/页</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 详情弹窗（正文预览 + 占位符清单） -->
+  <div class="modal fade" id="viewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="viewTitle">模板详情</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="viewBody"></div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">关闭</button></div>
+    </div></div>
+  </div>
+
+  <!-- 新建/编辑弹窗（原地升版：版本必须变更） -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">新建模板</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <input type="hidden" id="fOldVersion">
+        <div class="row">
+          <div class="col-4 mb-2">
+            <label class="form-label small">类型 <span class="text-danger">*</span> <span class="text-muted">（开放字典，可自定义）</span></label>
+            <input id="fType" class="form-control form-control-sm" list="typeCandidates" maxlength="64" placeholder="如 PRD / 复盘报告">
+            <datalist id="typeCandidates"></datalist>
+          </div>
+          <div class="col-5 mb-2"><label class="form-label small">名称 <span class="text-danger">*</span></label><input id="fName" class="form-control form-control-sm" maxlength="200"></div>
+          <div class="col-3 mb-2"><label class="form-label small">版本 <span class="text-danger">*</span></label><input id="fVersion" class="form-control form-control-sm" maxlength="32" placeholder="如 v1"></div>
+        </div>
+        <div class="mb-2"><label class="form-label small">正文（markdown，支持 {{标识符}} 占位符）<span class="text-danger">*</span></label>
+          <textarea id="fContent" class="form-control form-control-sm" rows="10" placeholder="本项目 {{project_name}} 的交付物..."></textarea></div>
+        <div class="text-muted" style="font-size:12px;">编辑时版本必须变更（原地升版，旧版本留审计）；同类型同名模板唯一。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../assets/js/lib/marked.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/governance-dict.js"></script>
+  <script src="../assets/js/sanitize.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      // 预置 5 常用类型（开放字典：P6 裁决——前端预置 + 已用自定义值聚合进候选，AC-F1.10）
+      const PRESET_TYPES = ['PRD', '技术方案', '任务清单', '测试用例', '部署方案'];
+      const usedTypes = {};   // 列表数据聚合的自定义值
+
+      const state = { page: 1, size: 10, templateType: '', keyword: '', includeDisabled: 0, total: 0 };
+
+      // ---- 响应工具：兼容 code=0 与 code=200 ----
+      function ok(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
+      function xhrMsg(xhr, d) { return (xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || d || ('请求失败（' + xhr.status + '）'); }
+
+      // ---- 写权限：platform_admin/tenant_admin 可写；其余只读（后端 403 兜底） ----
+      API.current().done(function (resp) {
+        if (!ok(resp)) return;
+        const roles = ((resp.data || {}).roleCodes) || [];
+        const writable = roles.indexOf('platform_admin') !== -1 || roles.indexOf('tenant_admin') !== -1;
+        if (writable) { $('#newBtn').show(); $('#tbody').data('writable', 1); }
+      }).fail(function () { });
+
+      // ---- 类型候选（预置 + 已用自定义值，AC-F1.10）----
+      function rebuildTypeCandidates() {
+        const custom = Object.keys(usedTypes).filter(function (t) { return PRESET_TYPES.indexOf(t) === -1; });
+        const all = PRESET_TYPES.concat(custom);
+        $('#typeCandidates').html(all.map(function (t) {
+          return '<option value="' + escAttr(t) + '">';
+        }).join(''));
+        const cur = $('#typeFilter').val() || '';
+        $('#typeFilter').html('<option value="">全部类型</option>' + all.map(function (t) {
+          return '<option value="' + escAttr(t) + '"' + (t === cur ? ' selected' : '') + '>' + escHtml(t) + '</option>';
+        }).join(''));
+      }
+
+      // ---- 列表 ----
+      function loadList() {
+        $('#tbody').html('<tr class="empty-row"><td colspan="6">加载中...</td></tr>');
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.templateType) params.set('templateType', state.templateType);
+        if (state.keyword) params.set('keyword', state.keyword);
+        if (state.includeDisabled) params.set('includeDisabled', 1);
+        API.bizGet('/api/v1/templates?' + params.toString()).done(function (resp) {
+          if (!ok(resp)) {
+            $('#tbody').html('<tr class="empty-row"><td colspan="6">' + escHtml(rmsg(resp, '加载失败')) + '</td></tr>');
+            $('#pageInfo').html('');
+            return;
+          }
+          const data = resp.data || {};
+          const list = data.records || data.list || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="6">' + escHtml(xhrMsg(xhr, '加载失败')) + '</td></tr>');
+        });
+      }
+
+      function renderTable(list) {
+        if (!list.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="6">'
+            + (state.includeDisabled ? '暂无模板' : '暂无启用的模板（勾选"含停用"可查看停用项）') + '</td></tr>');
+          return;
+        }
+        const writable = $('#tbody').data('writable') === 1;
+        $('#tbody').html(list.map(function (t) {
+          // 类型候选聚合：列表数据中的自定义值自然进入筛选器（AC-F1.10）
+          if (t.templateType) usedTypes[t.templateType] = 1;
+          const enabled = t.enabled === 1;
+          const switchCell = writable
+            ? '<div class="form-check form-switch m-0"><input class="form-check-input t-toggle" type="checkbox" role="switch" data-id="' + t.id + '"' + (enabled ? ' checked' : '') + '></div>'
+            : (enabled ? '<span class="badge text-bg-success">启用</span>' : '<span class="badge text-bg-secondary">停用</span>');
+          const btns = ['<button class="btn btn-sm btn-outline-primary t-view" data-id="' + t.id + '">详情</button>'];
+          if (writable) {
+            btns.push('<button class="btn btn-sm btn-outline-secondary t-edit" data-id="' + t.id + '">编辑</button>');
+            btns.push('<button class="btn btn-sm btn-outline-danger t-del" data-id="' + t.id + '">删除</button>');
+          }
+          return '<tr>'
+            + '<td><span class="type-chip">' + escHtml(t.templateType || '-') + '</span></td>'
+            + '<td><strong>' + escHtml(t.templateName || '') + '</strong>' + (enabled ? '' : ' <span class="badge text-bg-secondary">已停用</span>') + '</td>'
+            + '<td>' + escHtml(t.version || '-') + '</td>'
+            + '<td>' + switchCell + '</td>'
+            + '<td>' + (t.placeholderCount || 0) + '</td>'
+            + '<td style="white-space:nowrap;">' + btns.join(' ') + '</td>'
+            + '</tr>';
+        }).join(''));
+        rebuildTypeCandidates();
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + state.page + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', state.page <= 1);
+        $('#nextBtn').prop('disabled', state.page >= totalPages);
+      }
+
+      // ---- 详情（正文预览 + 占位符清单，AC-F1.11）----
+      $('#tbody').on('click', '.t-view', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/templates/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const t = resp.data || {};
+          $('#viewTitle').html('<span class="type-chip">' + escHtml(t.templateType || '-') + '</span> '
+            + escHtml(t.templateName || '') + ' <span class="text-muted">' + escHtml(t.version || '') + '</span>'
+            + (t.enabled === 1 ? '' : ' <span class="badge text-bg-secondary">已停用</span>'));
+          const phs = (t.placeholders || []).map(function (p) {
+            return '<span class="ph-chip">{{' + escHtml(p) + '}}</span>';
+          }).join('') || '<span class="text-muted">（无占位符）</span>';
+          $('#viewBody').html(
+            '<div class="sec-title">占位符清单（实时提取）</div><div class="sec-body">' + phs + '</div>'
+            + '<div class="sec-title">正文（markdown 预览）</div><div class="sec-body md-body">' + renderMd(t.content) + '</div>');
+          new bootstrap.Modal('#viewModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      // H1（安全评审）：markdown 正文为用户输入，marked 默认放行内联 HTML——渲染产物必须过
+      // 公共 DOM 清洗 assets/js/sanitize.js（复刻 case-detail.html:807 先例）才能注入 innerHTML。
+      // 攻击样例自测说明（清洗后均不触发；注：闭合标签以 <\/script> 转义书写，防 HTML 截断）：
+      //   1) <img src=x onerror=alert(1)>           → onerror 属性被剥除，仅剩 <img src="x">
+      //   2) <scr<script>ipt>alert(1)<\/script>     → DOM 解析后 script 节点整体移除（嵌套构造失效）
+      //   3) <a href="javascript:alert(1)">x</a>    → javascript: 协议被剥除，只剩裸链接文本
+      //   4) <iframe src="javascript:alert(1)">     → iframe 节点整体删除
+      function renderMd(md) {
+        if (!md) return '<span class="text-muted">（未填写）</span>';
+        let html;
+        try {
+          html = (window.marked && typeof window.marked.parse === 'function') ? window.marked.parse(String(md)) : escHtml(md);
+        } catch (e) { html = escHtml(md); }
+        return (typeof window.sanitizeHtml === 'function') ? window.sanitizeHtml(html) : escHtml(md);
+      }
+
+      // ---- 新建 / 编辑 ----
+      $('#newBtn').on('click', function () {
+        $('#fId').val(''); $('#fOldVersion').val('');
+        $('#fType').val(''); $('#fName').val(''); $('#fVersion').val(''); $('#fContent').val('');
+        $('#modalTitle').text('新建模板');
+        new bootstrap.Modal('#editModal').show();
+      });
+
+      $('#tbody').on('click', '.t-edit', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/templates/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const t = resp.data || {};
+          $('#fId').val(t.id);
+          $('#fOldVersion').val(t.version || '');
+          $('#fType').val(t.templateType || '');
+          $('#fName').val(t.templateName || '');
+          $('#fVersion').val(t.version || '');
+          $('#fContent').val(t.content || '');
+          $('#modalTitle').text('编辑模板 ' + (t.templateName || ('#' + t.id)) + '（原地升版）');
+          new bootstrap.Modal('#editModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const oldVersion = $('#fOldVersion').val();
+        const version = $('#fVersion').val().trim();
+        const body = {
+          templateType: $('#fType').val().trim(),
+          templateName: $('#fName').val().trim(),
+          version: version,
+          content: $('#fContent').val()
+        };
+        if (!body.templateType) { alert('类型不能为空（开放字典，可自定义值）'); return; }
+        if (!body.templateName) { alert('名称不能为空'); return; }
+        if (!body.version) { alert('版本不能为空'); return; }
+        if (!body.content || !body.content.trim()) { alert('正文不能为空'); return; }
+        // 前端校验 + 后端 400 双保险（AC-F1.12）：编辑时版本必须变更
+        if (id && version === oldVersion) { alert('版本必须变更（当前 ' + oldVersion + '，原地升版不允许同版本保存）'); return; }
+        const $btn = $(this).prop('disabled', true);
+        const req = id ? API.bizPut('/api/v1/templates/' + id, body) : API.bizPost('/api/v1/templates', body);
+        req.done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadList();
+          } else { alert(rmsg(resp, '保存失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '保存失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 启停（对齐 gate-rules PUT /{id}/enabled 形态）----
+      $('#tbody').on('change', '.t-toggle', function () {
+        const id = $(this).data('id');
+        const enabled = $(this).is(':checked') ? 1 : 0;
+        const $cb = $(this).prop('disabled', true);
+        API.bizPut('/api/v1/templates/' + id + '/enabled', { enabled: enabled }).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '启停失败')); loadList(); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '启停失败')); loadList(); })
+          .always(function () { $cb.prop('disabled', false); });
+      });
+
+      // ---- 删除 ----
+      $('#tbody').on('click', '.t-del', function () {
+        const id = $(this).data('id');
+        if (!confirm('确认删除该模板？删除后不可见、审计留痕。')) return;
+        API.bizDelete('/api/v1/templates/' + id).done(function (resp) {
+          if (ok(resp)) loadList();
+          else { alert(rmsg(resp, '删除失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '删除失败')); });
+      });
+
+      // ---- 事件绑定 ----
+      $('#typeFilter').on('change', function () { state.templateType = $(this).val(); state.page = 1; loadList(); });
+      $('#includeDisabled').on('change', function () { state.includeDisabled = $(this).is(':checked') ? 1 : 0; state.page = 1; loadList(); });
+      $('#searchBtn').on('click', function () { state.keyword = $('#keywordInput').val().trim(); state.page = 1; loadList(); });
+      $('#keywordInput').on('keydown', function (e) { if (e.key === 'Enter') $('#searchBtn').click(); });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+
+      // ---- 工具 ----
+      function escHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function escAttr(s) { return escHtml(s); }
+
+      rebuildTypeCandidates();
+      loadList();
+    });
+  </script>
+</body>
+</html>

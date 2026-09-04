@@ -28,6 +28,7 @@
         <div class="text-center mt-3"><a href="register.html" style="font-size:13px;color:#1677ff;">注册企业试用（30 天）→</a></div>
       </form>
 
+      <div id="trialExpiredTip" class="alert alert-danger mt-3 d-none" role="alert"></div>
       <div id="errorTip" class="alert alert-danger mt-3 d-none" role="alert"></div>
 
       <div class="login-footer">
@@ -52,6 +53,21 @@
         $('#errorTip').text(msg).removeClass('d-none');
         setTimeout(function () { $('#errorTip').addClass('d-none'); }, 3000);
       }
+      // T21（F3/AC-F3.1）：40003 试用已到期特判——红色文案+升级指引，不落通用错误弹窗（不自动消失）
+      function showTrialExpired(msg) {
+        $('#errorTip').addClass('d-none');
+        $('#trialExpiredTip').html('<strong>' + escapeHtml(msg || '试用已到期') + '</strong><br>'
+          + '<span style="font-size:13px;">升级指引：联系平台管理员（platform_admin 可通过订阅管理接口为您延期或转正）。</span>')
+          .removeClass('d-none');
+      }
+      function hideTrialExpired() {
+        $('#trialExpiredTip').addClass('d-none');
+      }
+      function escapeHtml(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
       function setLoading(loading) {
         $('#loginBtn').prop('disabled', loading).text(loading ? '登录中...' : '登 录');
         $('#username,#password').prop('readonly', loading);
@@ -65,14 +81,25 @@
 
       $('#loginForm').on('submit', function (e) {
         e.preventDefault();
+        hideTrialExpired();
         const u = $('#username').val().trim();
         const p = $('#password').val();
         if (!u || !p) { showError('请输入用户名和密码'); return; }
         setLoading(true);
         API.login(u, p).done(function (resp) {
           if (resp.code === 0) {
+            // T21（F3/AC-F3.2）：登录成功响应含 trialTip → 存 sessionStorage 供各页公共头提示条渲染；
+            // 无 tip（非 trial/无临期）时清除，防止上一位登录者的提示串扰
+            if (resp.data && resp.data.trialTip) {
+              sessionStorage.setItem('trialTip', JSON.stringify(resp.data.trialTip));
+            } else {
+              sessionStorage.removeItem('trialTip');
+            }
             API.setToken(resp.data.token);
             setTimeout(function () { location.href = CFG.INDEX_PAGE; }, 200);
+          } else if (resp.code === 40003) {
+            // T21：试用已到期特判（红色文案+升级指引，不落通用错误弹窗）
+            showTrialExpired(resp.msg);
           } else {
             // 40001 凭据错误 / 40002 账户禁用 / 50000 服务异常
             showError(resp.msg || '登录失败');

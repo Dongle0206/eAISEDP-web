@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>质量规则 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .sec-title { font-weight:700; font-size:13px; color:#1677ff; margin-bottom:2px; }
+    .sec-body { font-size:13px; color:#333; background:#fafafa; border-radius:6px; padding:8px 12px; margin-bottom:10px; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏（类型/结果筛选 + 关键字） -->
+    <div class="toolbar">
+      <h5 class="mb-0">数据质量规则</h5>
+      <span class="text-muted" style="font-size:13px;">规则化登记与追踪；最近结果由登记人判定（平台不做阈值自动判定）</span>
+      <div class="spacer"></div>
+      <select id="typeFilter" class="form-select form-select-sm" style="width:auto;"></select>
+      <select id="resultFilter" class="form-select form-select-sm" style="width:auto;">
+        <option value="">结果：不限</option>
+        <option value="pass">通过</option>
+        <option value="fail">未通过</option>
+      </select>
+      <input id="keywordInput" class="form-control form-control-sm" style="width:180px;" placeholder="规则名关键字">
+      <button id="searchBtn" class="btn btn-outline-secondary btn-sm">搜索</button>
+      <button id="newBtn" class="btn btn-primary btn-sm" style="display:none;">+ 新建规则</button>
+    </div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>规则名</th>
+            <th>关联资产</th>
+            <th style="width:100px;">检查类型</th>
+            <th style="width:110px;">阈值</th>
+            <th style="width:220px;">最近结果</th>
+            <th style="width:240px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="empty-row"><td colspan="6">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pager">
+      <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+      <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+      <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+      <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="10">10/页</option>
+        <option value="20">20/页</option>
+        <option value="50">50/页</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 详情弹窗 -->
+  <div class="modal fade" id="viewModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="viewTitle">规则详情</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="viewBody"></div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">关闭</button></div>
+    </div></div>
+  </div>
+
+  <!-- 新建/编辑弹窗（含资产选择器分页搜索） -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">新建规则</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="mb-2"><label class="form-label small">规则名 <span class="text-danger">*</span> <span class="text-muted">（租户内唯一）</span></label>
+          <input id="fName" class="form-control form-control-sm" maxlength="200" placeholder="如 订单表完整性"></div>
+        <div class="mb-2">
+          <label class="form-label small">关联资产 <span class="text-danger">*</span></label>
+          <div class="d-flex gap-2 mb-1">
+            <input id="assetSearchInput" class="form-control form-control-sm" style="width:220px;" placeholder="按名称/系统搜索资产">
+            <button id="assetSearchBtn" class="btn btn-outline-secondary btn-sm">搜索资产</button>
+          </div>
+          <select id="fAsset" class="form-select form-select-sm" size="5"></select>
+        </div>
+        <div class="row">
+          <div class="col-6 mb-2"><label class="form-label small">检查类型 <span class="text-danger">*</span></label>
+            <select id="fType" class="form-select form-select-sm"></select></div>
+          <div class="col-6 mb-2"><label class="form-label small">阈值（百分比达标线 0~100）<span class="text-danger">*</span></label>
+            <input id="fThreshold" type="number" min="0" max="100" step="0.01" class="form-control form-control-sm" placeholder="如 99.5">
+            <div class="text-muted" style="font-size:12px;">语义如 ≥99.5% 达标；边界 0 与 100 合法。</div></div>
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <!-- 登记"最近检查"弹窗（覆盖式更新） -->
+  <div class="modal fade" id="checkModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">登记最近检查结果</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="cId">
+        <div class="mb-1 text-muted" style="font-size:13px;" id="cRuleHint"></div>
+        <div class="mb-2"><label class="form-label small">结果 <span class="text-danger">*</span> <span class="text-muted">（登记人判定）</span></label>
+          <select id="cResult" class="form-select form-select-sm">
+            <option value="pass">通过（pass）</option>
+            <option value="fail">未通过（fail）</option>
+          </select></div>
+        <div class="mb-2"><label class="form-label small">实测值 <span class="text-muted">（可选，百分比语义）</span></label>
+          <input id="cActual" type="number" step="0.0001" class="form-control form-control-sm" placeholder="如 97.2"></div>
+        <div class="mb-2"><label class="form-label small">检查时间 <span class="text-muted">（缺省当前时刻）</span></label>
+          <input id="cTime" type="text" class="form-control form-control-sm" placeholder="yyyy-MM-dd HH:mm:ss"></div>
+        <div class="mb-2"><label class="form-label small">备注</label>
+          <input id="cRemark" class="form-control form-control-sm" maxlength="500" placeholder="如 字段缺失"></div>
+        <div class="text-muted" style="font-size:12px;">登记为覆盖式更新（单值当前态）；旧值留审计（结果/实测值/时间/登记人）。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="checkBtn" class="btn btn-primary btn-sm">登记</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/governance-dict.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      const DICT = window.GOV_DICT;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const state = { page: 1, size: 10, checkType: '', lastResult: '', keyword: '', total: 0 };
+
+      // ---- 响应工具：兼容 code=0 与 code=200 ----
+      function ok(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
+      function xhrMsg(xhr, d) { return (xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || d || ('请求失败（' + xhr.status + '）'); }
+
+      // ---- 写权限：platform_admin/tenant_admin 可写；其余只读（后端 403 兜底） ----
+      API.current().done(function (resp) {
+        if (!ok(resp)) return;
+        const roles = ((resp.data || {}).roleCodes) || [];
+        const writable = roles.indexOf('platform_admin') !== -1 || roles.indexOf('tenant_admin') !== -1;
+        if (writable) { $('#newBtn').show(); $('#tbody').data('writable', 1); }
+      }).fail(function () { });
+
+      // ---- 筛选器（枚举文案引 governance-dict） ----
+      $('#typeFilter').html(DICT.options('checkType', '', '类型：不限'));
+      $('#fType').html(DICT.options('checkType', '', '（选择检查类型）'));
+
+      // ---- 列表 ----
+      function loadList() {
+        $('#tbody').html('<tr class="empty-row"><td colspan="6">加载中...</td></tr>');
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.checkType) params.set('checkType', state.checkType);
+        if (state.lastResult) params.set('lastResult', state.lastResult);
+        if (state.keyword) params.set('keyword', state.keyword);
+        API.bizGet('/api/v1/data-quality-rules?' + params.toString()).done(function (resp) {
+          if (!ok(resp)) {
+            $('#tbody').html('<tr class="empty-row"><td colspan="6">' + escHtml(rmsg(resp, '加载失败')) + '</td></tr>');
+            $('#pageInfo').html('');
+            return;
+          }
+          const data = resp.data || {};
+          const list = data.records || data.list || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="6">' + escHtml(xhrMsg(xhr, '加载失败')) + '</td></tr>');
+        });
+      }
+
+      function renderTable(list) {
+        if (!list.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="6">暂无质量规则，点击右上角"新建规则"创建</td></tr>');
+          return;
+        }
+        const writable = $('#tbody').data('writable') === 1;
+        $('#tbody').html(list.map(function (r) {
+          const res = r.lastResult
+            ? DICT.badge('checkResult', r.lastResult) + ' <span class="text-muted" style="font-size:12px;">' + escHtml(fmtTime(r.lastCheckTime) || '-') + '</span>'
+              + (r.lastActualValue != null ? ' <span class="text-muted" style="font-size:12px;">实测 ' + escHtml(String(r.lastActualValue)) + '</span>' : '')
+            : '<span class="text-muted">未登记</span>';
+          const asset = (r.assetName ? escHtml(r.assetSystemName ? r.assetSystemName + '/' : '') + escHtml(r.assetName) : '<span class="text-muted">-</span>');
+          const btns = ['<button class="btn btn-sm btn-outline-primary r-view" data-id="' + r.id + '">详情</button>'];
+          if (writable) {
+            btns.push('<button class="btn btn-sm btn-outline-secondary r-edit" data-id="' + r.id + '">编辑</button>');
+            btns.push('<button class="btn btn-sm btn-outline-warning r-check" data-id="' + r.id + '" data-name="' + escAttr(r.ruleName || '') + '">登记检查</button>');
+            btns.push('<button class="btn btn-sm btn-outline-danger r-del" data-id="' + r.id + '">删除</button>');
+          }
+          return '<tr>'
+            + '<td><strong>' + escHtml(r.ruleName || '') + '</strong></td>'
+            + '<td>' + asset + '</td>'
+            + '<td>' + escHtml(DICT.text('checkType', r.checkType)) + '</td>'
+            + '<td>' + escHtml(r.threshold != null ? r.threshold + '%' : '-') + '</td>'
+            + '<td>' + res + '</td>'
+            + '<td style="white-space:nowrap;">' + btns.join(' ') + '</td>'
+            + '</tr>';
+        }).join(''));
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + state.page + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', state.page <= 1);
+        $('#nextBtn').prop('disabled', state.page >= totalPages);
+      }
+
+      // ---- 详情 ----
+      $('#tbody').on('click', '.r-view', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/data-quality-rules/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const r = resp.data || {};
+          $('#viewTitle').text(r.ruleName || '规则详情');
+          $('#viewBody').html(
+            '<div class="sec-title">关联资产</div><div class="sec-body">'
+            + escHtml((r.assetSystemName ? r.assetSystemName + '/' : '') + (r.assetName || '-')) + '</div>'
+            + '<div class="sec-title">规则配置</div><div class="sec-body">'
+            + '检查类型：' + escHtml(DICT.text('checkType', r.checkType)) + ' · 阈值：' + escHtml(r.threshold != null ? r.threshold + '%' : '-') + '</div>'
+            + '<div class="sec-title">最近检查结果</div><div class="sec-body">'
+            + (r.lastResult ? DICT.badge('checkResult', r.lastResult) + ' 实测 ' + escHtml(r.lastActualValue != null ? String(r.lastActualValue) : '-')
+              + ' · ' + escHtml(fmtTime(r.lastCheckTime) || '-') + (r.lastCheckRemark ? ' · 备注：' + escHtml(r.lastCheckRemark) : '')
+              : '<span class="text-muted">从未登记</span>') + '</div>');
+          new bootstrap.Modal('#viewModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      // ---- 资产选择器（A1 分页搜索） ----
+      function searchAssets(selectedId) {
+        const kw = $('#assetSearchInput').val().trim();
+        const params = new URLSearchParams();
+        params.set('page', 1);
+        params.set('size', 50);
+        if (kw) params.set('keyword', kw);
+        API.bizGet('/api/v1/data-assets?' + params.toString()).done(function (resp) {
+          if (!ok(resp)) { $('#fAsset').html('<option value="">（资产加载失败）</option>'); return; }
+          const list = (resp.data && (resp.data.records || resp.data.list)) || [];
+          $('#fAsset').html(list.length ? list.map(function (a) {
+            const label = (a.systemName || '') + '/' + (a.assetName || '') + '（' + DICT.text('sensitivity', a.sensitivity) + '）';
+            return '<option value="' + a.id + '"' + (String(a.id) === String(selectedId) ? ' selected' : '') + '>' + escHtml(label) + '</option>';
+          }).join('') : '<option value="">（无匹配资产）</option>');
+        }).fail(function () { $('#fAsset').html('<option value="">（资产加载失败）</option>'); });
+      }
+
+      // ---- 新建 / 编辑 ----
+      $('#newBtn').on('click', function () {
+        $('#fId').val(''); $('#fName').val(''); $('#fType').val(''); $('#fThreshold').val('');
+        $('#assetSearchInput').val('');
+        $('#modalTitle').text('新建规则');
+        searchAssets(null);
+        new bootstrap.Modal('#editModal').show();
+      });
+
+      $('#tbody').on('click', '.r-edit', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/data-quality-rules/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const r = resp.data || {};
+          $('#fId').val(r.id);
+          $('#fName').val(r.ruleName || '');
+          $('#fType').val(r.checkType || '');
+          $('#fThreshold').val(r.threshold != null ? r.threshold : '');
+          $('#assetSearchInput').val('');
+          $('#modalTitle').text('编辑规则 ' + (r.ruleName || ('#' + r.id)));
+          searchAssets(r.assetId);
+          new bootstrap.Modal('#editModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      $('#assetSearchBtn').on('click', function () { searchAssets($('#fAsset').val()); });
+      $('#assetSearchInput').on('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); searchAssets($('#fAsset').val()); } });
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const thresholdStr = $('#fThreshold').val().trim();
+        const threshold = thresholdStr === '' ? null : parseFloat(thresholdStr);
+        const body = {
+          ruleName: $('#fName').val().trim(),
+          assetId: $('#fAsset').val() ? parseInt($('#fAsset').val(), 10) : null,
+          checkType: $('#fType').val(),
+          threshold: threshold
+        };
+        if (!body.ruleName) { alert('规则名不能为空'); return; }
+        if (!body.assetId) { alert('请选择关联资产'); return; }
+        if (!body.checkType) { alert('请选择检查类型'); return; }
+        if (body.threshold == null || isNaN(body.threshold)) { alert('阈值不能为空'); return; }
+        if (body.threshold < 0 || body.threshold > 100) { alert('阈值须在 0~100 之间（边界 0 与 100 合法）'); return; }   // 前端提示 + 后端 400 双保险
+        const $btn = $(this).prop('disabled', true);
+        const req = id ? API.bizPut('/api/v1/data-quality-rules/' + id, body) : API.bizPost('/api/v1/data-quality-rules', body);
+        req.done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadList();
+          } else { alert(rmsg(resp, '保存失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '保存失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 登记最近检查（Q6，覆盖式更新） ----
+      $('#tbody').on('click', '.r-check', function () {
+        const id = $(this).data('id');
+        $('#cId').val(id);
+        $('#cRuleHint').text('规则：' + ($(this).data('name') || id));
+        $('#cResult').val('pass');
+        $('#cActual').val('');
+        $('#cRemark').val('');
+        // 时间缺省当前时刻（本地 yyyy-MM-dd HH:mm:ss）
+        const d = new Date();
+        const p = function (n) { return n < 10 ? '0' + n : n; };
+        $('#cTime').val(d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()));
+        new bootstrap.Modal('#checkModal').show();
+      });
+
+      $('#checkBtn').on('click', function () {
+        const id = $('#cId').val();
+        const actualStr = $('#cActual').val().trim();
+        const body = {
+          result: $('#cResult').val(),
+          actualValue: actualStr === '' ? null : parseFloat(actualStr),
+          checkTime: $('#cTime').val().trim() || null,
+          remark: $('#cRemark').val().trim() || null
+        };
+        if (!body.result) { alert('请选择结果（pass/fail）'); return; }
+        if (body.actualValue != null && isNaN(body.actualValue)) { alert('实测值须为数字'); return; }
+        const $btn = $(this).prop('disabled', true);
+        API.bizPost('/api/v1/data-quality-rules/' + id + '/check-results', body).done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('checkModal')).hide();
+            loadList();
+          } else { alert(rmsg(resp, '登记失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '登记失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 删除 ----
+      $('#tbody').on('click', '.r-del', function () {
+        const id = $(this).data('id');
+        if (!confirm('确认删除该质量规则？删除后列表不可见、审计留痕。')) return;
+        API.bizDelete('/api/v1/data-quality-rules/' + id).done(function (resp) {
+          if (ok(resp)) loadList();
+          else { alert(rmsg(resp, '删除失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '删除失败')); });
+      });
+
+      // ---- 事件绑定 ----
+      $('#typeFilter').on('change', function () { state.checkType = $(this).val(); state.page = 1; loadList(); });
+      $('#resultFilter').on('change', function () { state.lastResult = $(this).val(); state.page = 1; loadList(); });
+      $('#searchBtn').on('click', function () { state.keyword = $('#keywordInput').val().trim(); state.page = 1; loadList(); });
+      $('#keywordInput').on('keydown', function (e) { if (e.key === 'Enter') $('#searchBtn').click(); });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+
+      // ---- 工具 ----
+      function fmtTime(t) {
+        if (!t) return '';
+        return String(t).replace('T', ' ').substring(0, 19);
+      }
+      function escHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function escAttr(s) { return escHtml(s); }
+
+      loadList();
+    });
+  </script>
+</body>
+</html>

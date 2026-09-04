@@ -27,6 +27,9 @@
 </head>
 <body>
   <div class="page-wrap">
+    <!-- T21（F3/AC-F3.2/F3.5）：试用临期提示条（对租户全部角色可见；无 tip 不渲染） -->
+    <div id="trialTipBar" class="alert mb-3 d-none" role="alert"></div>
+
     <div class="toolbar d-flex align-items-center mb-3">
       <h5 class="mb-0">数据看板</h5>
       <div class="ms-auto">
@@ -109,11 +112,39 @@
   <script src="../config.js"></script>
   <script src="../assets/js/i18n.js"></script>
   <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/governance-dict.js"></script>
   <script>
     $(function () {
       const API = window.EAISELP_API;
       const CFG = window.EAISELP_CONFIG;
       if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      // T21（F3）：读 sessionStorage.trialTip 渲染顶部提示条（登录响应写入，见 login.html）。
+      // 三档样式优先走 governance-dict.js 集中字典 GOV_DICT.data.trialTip（S1 修复：原引用不存在的
+      // window.GovernanceDict 恒走 FALLBACK 死分支）；字典异常缺失时用 Bootstrap 原生 alert
+      // 色阶兜底（info=蓝/warning=黄/danger=红）。文案 .text() 渲染（expireTime 不进 HTML 上下文）。
+      (function renderTrialTip() {
+        var raw = null;
+        try { raw = sessionStorage.getItem('trialTip'); } catch (e) { return; }
+        if (!raw) return;
+        var tip = null;
+        try { tip = JSON.parse(raw); } catch (e) { sessionStorage.removeItem('trialTip'); return; }
+        if (!tip || !tip.daysLeft) return;
+        var dict = (window.GOV_DICT && window.GOV_DICT.data && window.GOV_DICT.data.trialTip
+          && window.GOV_DICT.data.trialTip[tip.level]) || null;
+        var FALLBACK = {
+          normal: { alertClass: 'alert-info', icon: 'ℹ' },
+          warning: { alertClass: 'alert-warning', icon: '⚠' },
+          critical: { alertClass: 'alert-danger', icon: '⛔' }
+        };
+        var fb = FALLBACK[tip.level] || FALLBACK.normal;
+        var style = dict ? { alertClass: dict.cls, icon: fb.icon } : fb;
+        var detail = '试用版剩余 ' + tip.daysLeft + ' 天（到期时间 ' + (tip.expireTime || '-') + '），请联系平台管理员升级。';
+        var msg = (dict && dict.text ? dict.text + '：' : '') + detail;
+        var $bar = $('#trialTipBar');
+        $bar.addClass(style.alertClass).removeClass('d-none')
+            .text((style.icon ? style.icon + ' ' : '') + msg);
+      })();
 
       // 状态→条形色（与 case-list 状态色系一致：drafting灰/deriving蓝/reviewing紫/testing黄/deploying青/done绿）
       const STATUS_COLORS = {
@@ -151,7 +182,7 @@
           API.bizGet('/api/v1/dashboard/overview'),
           API.bizGet('/api/v1/dashboard/case-stats'),
           API.bizGet('/api/v1/dashboard/derivation-stats')
-        );
+        ];
         $.when.apply($, reqs).done(function (ovArgs, csArgs, dvArgs) {
           const overview = unwrap(ovArgs);
           const caseStats = unwrap(csArgs);

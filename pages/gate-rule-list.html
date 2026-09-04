@@ -21,6 +21,10 @@
     .fa-badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:12px; }
     .empty-row td { text-align:center; color:#999; padding:40px 0; }
     .conf-code { font-family:Consolas,monospace; font-size:12px; }
+    /* T14 已关联标准只读区（条目形态；文案/徽标样式引 governance-dict.js 集中定义） */
+    .std-item { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:2px 0; font-size:12px; }
+    .std-item .std-code { font-family:Consolas,monospace; font-weight:700; color:#1677ff; }
+    .std-deleted-chip { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; background:#f5f5f5; color:#999; text-decoration:line-through; }
   </style>
 </head>
 <body>
@@ -129,6 +133,12 @@
             <option value="0">停用</option>
           </select>
         </div>
+        <!-- T14（AC-F1.7 翻译口径）：只读"已关联标准"区——关联关系在标准侧维护（裁决 Q1），
+             本页不提供编辑入口，仅按规则 name 反查展示现行 published 标准（含"已删除"占位） -->
+        <div class="mt-3 pt-2" style="border-top:1px dashed #e8e8e8;">
+          <label class="form-label small mb-1">已关联标准（只读——关联在「工程标准」页的标准编辑弹窗维护）</label>
+          <div id="linkedStdBox"><span class="text-muted small">加载中...</span></div>
+        </div>
       </div>
       <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
     </div></div>
@@ -139,6 +149,7 @@
   <script src="../config.js"></script>
   <script src="../assets/js/i18n.js"></script>
   <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/governance-dict.js"></script>
   <script>
     $(function () {
       const API = window.EAISELP_API;
@@ -201,6 +212,44 @@
         $('#tbody').html(rows.join(''));
       }
 
+      // ---- T14 已关联标准（只读区，AC-F1.7 翻译口径）----
+      // 关联存储在标准侧（t_standard.related_gate_names，裁决 Q1）→ 本页按规则 name 反查
+      // GET /api/v1/standards?gateName={name}&status=published（D-9：逻辑删标准以 deleted=true 占位返回）
+      function loadLinkedStandards(ruleName) {
+        const $box = $('#linkedStdBox').html('<span class="text-muted small">加载中...</span>');
+        if (!ruleName) {
+          $box.html('<span class="text-muted small">暂无（保存规则后，可在「工程标准」页关联本规则）</span>');
+          return;
+        }
+        API.bizGet('/api/v1/standards?gateName=' + encodeURIComponent(ruleName) + '&status=published&size=50')
+          .done(function (resp) {
+            if (resp.code !== 0) {
+              $box.html('<span class="text-muted small">' + escapeHtml(resp.msg || '加载失败') + '</span>');
+              return;
+            }
+            const data = resp.data || {};
+            const list = data.records || data.list || [];
+            if (!list.length) {
+              $box.html('<span class="text-muted small">暂无关联标准（在「工程标准」页的标准编辑弹窗勾选本规则后发布生效）</span>');
+              return;
+            }
+            $box.html(list.map(function (s) {
+              if (s.deleted === true) {
+                // D-9 已删除占位（AC-F1.7 Then：逻辑删标准后条目变"已删除"占位）
+                return '<div class="std-item"><span class="std-deleted-chip">已删除</span>'
+                  + '<span class="std-code">' + escapeHtml(s.standardCode || '') + '</span>'
+                  + '<span class="text-muted">《' + escapeHtml(s.title || '') + '》' + escapeHtml(s.version || '') + '</span></div>';
+              }
+              return '<div class="std-item"><span class="std-code">' + escapeHtml(s.standardCode || '') + '</span>'
+                + '<span>《' + escapeHtml(s.title || '') + '》' + escapeHtml(s.version || '') + '</span>'
+                + (window.GOV_DICT ? window.GOV_DICT.badge('standardStatus', s.status) : '')
+                + '</div>';
+            }).join(''));
+          }).fail(function (xhr) {
+            $box.html('<span class="text-muted small">' + escapeHtml((xhr.responseJSON && xhr.responseJSON.msg) || '加载失败') + '</span>');
+          });
+      }
+
       // 类型联动显示
       function syncTypeRows() {
         const gt = $('#fGateType').val();
@@ -218,6 +267,7 @@
         $('#fFailAction').val('block'); $('#fMaxRetries').val(''); $('#fPriority').val(100);
         $('#fEnabled').val('1');
         syncTypeRows();
+        loadLinkedStandards('');   // 新建无 name——只读区展示维护指引（关联在标准侧操作）
         $('#modalTitle').text('新建门禁规则');
         new bootstrap.Modal('#editModal').show();
       });
@@ -239,6 +289,7 @@
           $('#fPriority').val(r.priority != null ? r.priority : 100);
           $('#fEnabled').val(r.enabled === 1 || r.enabled === true ? '1' : '0');
           syncTypeRows();
+          loadLinkedStandards(r.name);   // T14：编辑区只读展示该规则已关联的 published 标准
           $('#modalTitle').text('编辑规则 #' + r.id);
           new bootstrap.Modal('#editModal').show();
         }).fail(function (xhr) { alert((xhr.responseJSON && xhr.responseJSON.msg) || '请求失败'); });
