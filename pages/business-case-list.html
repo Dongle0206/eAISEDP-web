@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>商业案例 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .sec-title { font-weight:700; font-size:13px; color:#1677ff; margin-bottom:2px; }
+    .sec-body { font-size:13px; color:#333; background:#fafafa; border-radius:6px; padding:8px 12px; margin-bottom:10px; white-space:pre-wrap; }
+    .str-chip { display:inline-block; background:#f9f0ff; color:#722ed1; border-radius:9px; padding:1px 8px; font-size:12px; margin:1px 4px 1px 0; }
+    .str-chip.deleted { background:#f5f5f5; color:#999; text-decoration:line-through; }
+    .ck-box { display:inline-block; border:1px solid #d3adf7; border-radius:8px; padding:3px 10px; margin:0 6px 6px 0; font-size:13px; cursor:pointer; }
+    .ck-box input { margin-right:4px; }
+    .sum-card { border:1px solid #eee; border-radius:8px; background:#fff; padding:10px 14px; min-width:150px; }
+    .sum-card .num { font-size:20px; font-weight:700; }
+    .sum-card .num.neg { color:#f5222d; }
+    .sum-scope { display:inline-block; background:#e6f4ff; color:#1677ff; border-radius:9px; padding:1px 8px; font-size:12px; }
+    .calc-box { background:#f6ffed; border:1px solid #b7eb8f; border-radius:8px; padding:8px 12px; font-size:13px; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 页头 + 双 tab（清单 / 投资组合，D-9 并页） -->
+    <ul class="nav nav-tabs mb-3">
+      <li class="nav-item"><a class="nav-link active" href="#" data-tab="list">案例清单</a></li>
+      <li class="nav-item"><a class="nav-link" href="#" data-tab="portfolio">投资组合</a></li>
+    </ul>
+
+    <!-- ============ Tab 1：案例清单 ============ -->
+    <div class="tab-pane show active" id="pane-list">
+      <div class="toolbar">
+        <h5 class="mb-0">商业案例</h5>
+        <span class="text-muted" style="font-size:13px;">回收期/ROI/RICE 服务端自动计算；创建与审批分离；不限分层</span>
+        <div class="spacer"></div>
+        <label class="mb-0 d-flex align-items-center" style="gap:4px;">
+          <span class="text-muted">状态：</span>
+          <select id="statusFilter" class="form-select form-select-sm" style="width:auto;"></select>
+        </label>
+        <label class="mb-0 d-flex align-items-center" style="gap:4px;">
+          <span class="text-muted">关联战略：</span>
+          <select id="strategyFilter" class="form-select form-select-sm" style="width:auto;min-width:140px;">
+            <option value="">全部</option>
+          </select>
+        </label>
+        <input id="keywordInput" class="form-control form-control-sm" style="width:160px;" placeholder="案例名关键字">
+        <button id="searchBtn" class="btn btn-outline-secondary btn-sm">搜索</button>
+        <button id="newBtn" class="btn btn-primary btn-sm" style="display:none;">+ 新建案例</button>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-bordered table-hover bg-white mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>案例名</th>
+              <th style="width:90px;">状态</th>
+              <th style="width:90px;">RICE</th>
+              <th style="width:110px;">回收期(年)</th>
+              <th style="width:110px;">ROI</th>
+              <th style="width:90px;">关联战略</th>
+              <th style="width:270px;">操作</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr class="empty-row"><td colspan="7">加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pager">
+        <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+        <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+        <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+        <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+          <option value="10">10/页</option>
+          <option value="20">20/页</option>
+          <option value="50">50/页</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- ============ Tab 2：投资组合（B8 聚合） ============ -->
+    <div class="tab-pane" id="pane-portfolio">
+      <div class="toolbar">
+        <h5 class="mb-0">投资组合视图</h5>
+        <span class="sum-scope">投资口径汇总：仅含已批准 / 执行中 / 已完成（draft 未决策、rejected 已否决不计入）</span>
+        <div class="spacer"></div>
+        <button id="portfolioRefreshBtn" class="btn btn-outline-secondary btn-sm">刷新</button>
+      </div>
+
+      <!-- 四卡汇总（投资口径，后端算前端只显；负值正常展示红字；金额万/亿缩写，悬停看精确值） -->
+      <div class="d-flex gap-2 flex-wrap mb-3" id="sumCards"><span class="text-muted">加载中...</span></div>
+
+      <div class="row">
+        <!-- 状态分布（全量五态口径，与汇总投资口径有意不同——AC-F2.12） -->
+        <div class="col-md-3">
+          <div class="bg-white border rounded p-3 h-100">
+            <div class="sec-title">状态分布（全量五态）</div>
+            <div id="statusDist" class="mt-2"><span class="text-muted">加载中...</span></div>
+            <div class="text-muted mt-2" style="font-size:12px;">分布看流程漏斗，汇总看钱——两个口径有意不同。</div>
+          </div>
+        </div>
+        <!-- RICE 降序全量案例表（含 rejected/done，状态标注；回收期/ROI null→N/A） -->
+        <div class="col-md-9">
+          <div class="bg-white border rounded p-3 h-100">
+            <div class="sec-title">案例清单（RICE 降序，含已拒绝/已完成）</div>
+            <div class="table-responsive mt-2">
+              <table class="table table-sm table-bordered mb-0" style="font-size:13px;">
+                <thead class="table-light">
+                  <tr>
+                    <th>案例名</th><th style="width:80px;">状态</th><th style="width:70px;">RICE</th>
+                    <th style="width:90px;">回收期(年)</th><th style="width:90px;">ROI</th>
+                    <th style="width:110px;">一次性成本</th><th style="width:110px;">年净收益</th>
+                  </tr>
+                </thead>
+                <tbody id="pfTbody"><tr class="empty-row"><td colspan="7">加载中...</td></tr></tbody>
+              </table>
+            </div>
+            <div class="pager">
+              <span id="pfPageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+              <button id="pfPrevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+              <button id="pfNextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 详情弹窗 -->
+  <div class="modal fade" id="viewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="viewTitle">案例详情</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="viewBody"></div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">关闭</button></div>
+    </div></div>
+  </div>
+
+  <!-- 新建/编辑弹窗 -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">新建案例</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="row">
+          <div class="col-8 mb-2"><label class="form-label small">案例名 <span class="text-danger">*</span></label><input id="fCaseName" class="form-control form-control-sm" maxlength="200"></div>
+          <div class="col-4 mb-2 d-flex align-items-end"><span class="text-muted" style="font-size:12px;">创建后默认"草稿"；仅草稿可编辑输入与删除</span></div>
+        </div>
+        <div class="mb-2"><label class="form-label small">描述</label><textarea id="fDescription" class="form-control form-control-sm" rows="2"></textarea></div>
+        <div class="mb-2"><label class="form-label small">关联战略（可空多选；L3 未启用时选择器为空列表，属正常）</label><div id="strategyBoxes"><span class="text-muted">加载中...</span></div></div>
+        <div class="row">
+          <div class="col-4 mb-2"><label class="form-label small">一次性成本（元）<span class="text-danger">*</span></label><input type="number" id="fOnetimeCost" class="form-control form-control-sm" min="0" step="0.01"></div>
+          <div class="col-4 mb-2"><label class="form-label small">年运营成本（元）<span class="text-danger">*</span></label><input type="number" id="fAnnualOpCost" class="form-control form-control-sm" min="0" step="0.01"></div>
+          <div class="col-4 mb-2"><label class="form-label small">量化收益/年（元）<span class="text-danger">*</span></label><input type="number" id="fAnnualBenefit" class="form-control form-control-sm" min="0" step="0.01"></div>
+        </div>
+        <div class="row">
+          <div class="col-3 mb-2"><label class="form-label small">Reach 触达（1~10）<span class="text-danger">*</span></label><select id="fReach" class="form-select form-select-sm"></select></div>
+          <div class="col-3 mb-2"><label class="form-label small">Impact 影响（1~10）<span class="text-danger">*</span></label><select id="fImpact" class="form-select form-select-sm"></select></div>
+          <div class="col-3 mb-2"><label class="form-label small">Confidence 信心<span class="text-danger">*</span></label><select id="fConfidence" class="form-select form-select-sm"></select></div>
+          <div class="col-3 mb-2"><label class="form-label small">Effort 工作量（1~10）<span class="text-danger">*</span></label><select id="fEffort" class="form-select form-select-sm"></select></div>
+        </div>
+        <!-- 计算字段只读回显（编辑时显示服务端重算值；新建占位）——不入提交体，前端不发 -->
+        <div class="calc-box mb-2" id="calcBox">计算字段（服务端按输入自动重算，只读）：年净收益 - · 回收期 - · ROI - · RICE -</div>
+        <div class="text-muted" style="font-size:12px;">金额 ≥0，单位元；Confidence 为 0.1 步进离散十档（0.1~1.0）；净收益≤0 时回收期为 N/A（不可投）、一次性成本=0 时 ROI 为 N/A（除零防御）。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <!-- 状态流转弹窗（B7：approve 权限，仅审批人可见入口） -->
+  <div class="modal fade" id="transitModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="transitTitle">状态流转</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="tId">
+        <div class="mb-2"><label class="form-label small">目标状态 <span class="text-danger">*</span></label>
+          <select id="tTarget" class="form-select form-select-sm"></select></div>
+        <div class="mb-2 d-none" id="tReasonWrap"><label class="form-label small">拒绝原因（rejectedReason）<span class="text-danger">*</span></label>
+          <textarea id="tReason" class="form-control form-control-sm" rows="3" placeholder="如：收益假设不成立"></textarea></div>
+        <div class="text-muted" style="font-size:12px;">状态机：draft→approved→executing→done；draft→rejected（必填原因）；rejected/done 终态；批准后不可撤销。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="transitBtn" class="btn btn-primary btn-sm">确认流转</button></div>
+    </div></div>
+  </div>
+
+  <!-- 决策记录弹窗（B6） -->
+  <div class="modal fade" id="noteModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">更新决策记录</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="nId">
+        <div class="mb-2"><label class="form-label small">决策记录（decisionNote）<span class="text-danger">*</span></label>
+          <textarea id="nNote" class="form-control form-control-sm" rows="4" placeholder="如：Q4 启动执行；阶段进展与复盘结论"></textarea></div>
+        <div class="text-muted" style="font-size:12px;">草稿/已批准/执行中可更新（执行期进展记录）；已拒绝/已完成只读；旧值留审计痕。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="noteBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/governance-dict.js"></script>
+  <script src="../assets/js/sanitize.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      const DICT = window.GOV_DICT;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      // 状态机（契约 B7）：draft→approved/rejected；approved→executing；executing→done；终态无出边
+      const TRANSITS = {
+        draft: [
+          { to: 'approved', label: '批准（approved）' },
+          { to: 'rejected', label: '拒绝（rejected，必填原因）' }
+        ],
+        approved: [{ to: 'executing', label: '启动执行（executing）' }],
+        executing: [{ to: 'done', label: '完成（done）' }],
+        rejected: [],
+        done: []
+      };
+      const NOTE_EDITABLE = ['draft', 'approved', 'executing']; // 决策记录可更新状态（B6）
+
+      const state = { page: 1, size: 10, status: '', strategyId: '', keyword: '', total: 0 };
+      const pfState = { page: 1, size: 10, total: 0 };
+      const perm = { write: false, approve: false }; // write（bizcase:create/edit）= PA/TA/PM；approve（bizcase:approve）= 仅 PA/TA——创建与审批分离（AC-F2.9）
+      let strategies = [];
+      let portfolioLoaded = false;
+
+      // ---- 响应工具：兼容 code=0（既有端点）与 code=200（本 case 契约） ----
+      function ok(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
+      function xhrMsg(xhr, d) { return (xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || d || ('请求失败（' + xhr.status + '）'); }
+
+      // ---- 权限：按 API.current 角色判断（approve 按钮仅 PA/TA 可见；后端 40301 兜底）----
+      function loadPerm() {
+        const d = $.Deferred();
+        API.current().done(function (resp) {
+          if (!ok(resp)) { d.resolve(); return; }
+          const roles = ((resp.data || {}).roleCodes) || [];
+          const isPaTa = roles.indexOf('platform_admin') !== -1 || roles.indexOf('tenant_admin') !== -1;
+          perm.approve = isPaTa;
+          perm.write = isPaTa || roles.indexOf('project_manager') !== -1;
+          if (perm.write) $('#newBtn').show();
+          d.resolve();
+        }).fail(function () { d.resolve(); /* 保持只读，后端 403 兜底 */ });
+        return d.promise();
+      }
+
+      // ---- 战略选择器（T17 场景 C：L3 关→43001 或请求失败 → 静默降级空列表，不报错）----
+      function loadStrategies() {
+        const d = $.Deferred();
+        API.bizGet('/api/v1/strategies?page=1&size=500&status=all').done(function (resp) {
+          if (ok(resp) && resp.data) {
+            strategies = (resp.data.records || resp.data.list || []).map(function (s) {
+              return { id: s.id, title: s.title || ('#' + s.id) };
+            });
+          } else { strategies = []; }
+          d.resolve();
+        }).fail(function () { strategies = []; d.resolve(); });
+        return d.promise();
+      }
+
+      function renderStrategyBoxes(selectedIds) {
+        selectedIds = selectedIds || [];
+        $('#strategyBoxes').html(strategies.length ? strategies.map(function (s) {
+          const checked = selectedIds.some(function (id) { return String(id) === String(s.id); }) ? ' checked' : '';
+          return '<label class="ck-box"><input type="checkbox" class="str-ck" value="' + escAttr(s.id) + '"' + checked + '>'
+            + escHtml('#' + s.id + ' ' + s.title) + '</label>';
+        }).join('') : '<span class="text-muted" style="font-size:13px;">暂无可选战略（L3 未启用或暂无数据，可空）</span>');
+        $('#strategyFilter').html('<option value="">全部</option>' + strategies.map(function (s) {
+          return '<option value="' + escAttr(s.id) + '"' + (String(state.strategyId) === String(s.id) ? ' selected' : '') + '>'
+            + escHtml('#' + s.id + ' ' + s.title) + '</option>';
+        }).join(''));
+      }
+      function collectStrategyIds() {
+        const arr = [];
+        $('#editModal .str-ck:checked').each(function () { arr.push(Number($(this).val())); });
+        return arr;
+      }
+
+      // ---- 案例清单（B1：默认 RICE 降序，服务端排序）----
+      function loadList() {
+        $('#tbody').html('<tr class="empty-row"><td colspan="7">加载中...</td></tr>');
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.status) params.set('status', state.status);
+        if (state.strategyId) params.set('strategyId', state.strategyId);
+        if (state.keyword) params.set('keyword', state.keyword);
+        API.bizGet('/api/v1/business-cases?' + params.toString()).done(function (resp) {
+          if (!ok(resp)) {
+            $('#tbody').html('<tr class="empty-row"><td colspan="7">' + escHtml(rmsg(resp, '加载失败')) + '</td></tr>');
+            $('#pageInfo').html('');
+            return;
+          }
+          const data = resp.data || {};
+          const list = data.records || data.list || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="7">' + escHtml(xhrMsg(xhr, '加载失败')) + '</td></tr>');
+        });
+      }
+
+      // 双 N/A 语义（null=N/A）：payback——净收益≤0 不可投；roi——一次性成本=0 除零防御（AC-F2.2/F2.3）
+      function fmtPayback(v) { return v == null ? 'N/A' : String(v); }
+      function fmtRoi(v) { return v == null ? 'N/A' : (v + '%'); }
+
+      function renderTable(list) {
+        if (!list.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="7">暂无案例，点击右上角"新建案例"创建</td></tr>');
+          return;
+        }
+        $('#tbody').html(list.map(function (c) {
+          const st = c.status || '';
+          const strCount = (c.relatedStrategyIds || []).length;
+          const btns = ['<button class="btn btn-sm btn-outline-primary a-view" data-id="' + c.id + '">详情</button>'];
+          if (perm.write && st === 'draft') {
+            btns.push('<button class="btn btn-sm btn-outline-secondary a-edit" data-id="' + c.id + '">编辑</button>');
+          }
+          if (perm.write && NOTE_EDITABLE.indexOf(st) !== -1) {
+            btns.push('<button class="btn btn-sm btn-outline-secondary a-note" data-id="' + c.id + '" title="更新决策记录（执行期进展）">决策记录</button>');
+          }
+          if (perm.approve && (TRANSITS[st] || []).length) {
+            btns.push('<button class="btn btn-sm btn-outline-success a-transit" data-id="' + c.id + '" data-status="' + escAttr(st) + '">流转</button>');
+          }
+          if (perm.write && st === 'draft') {
+            btns.push('<button class="btn btn-sm btn-outline-danger a-del" data-id="' + c.id + '">删除</button>');
+          }
+          return '<tr>'
+            + '<td><strong>' + escHtml(c.caseName || '') + '</strong></td>'
+            + '<td>' + DICT.badge('bizcaseStatus', st) + '</td>'
+            + '<td><strong>' + escHtml(c.riceScore != null ? c.riceScore : '-') + '</strong></td>'
+            + '<td>' + escHtml(fmtPayback(c.paybackYears)) + '</td>'
+            + '<td>' + escHtml(fmtRoi(c.roiPercent)) + '</td>'
+            + '<td>' + (strCount ? strCount + ' 个' : '<span class="text-muted">-</span>') + '</td>'
+            + '<td style="white-space:nowrap;">' + btns.join(' ') + '</td>'
+            + '</tr>';
+        }).join(''));
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + state.page + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', state.page <= 1);
+        $('#nextBtn').prop('disabled', state.page >= totalPages);
+      }
+
+      // ---- 详情（B3：relatedStrategies 含 deleted 占位）----
+      $('#tbody').on('click', '.a-view', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/business-cases/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const c = resp.data || {};
+          $('#viewTitle').html('<strong>' + escHtml(c.caseName || '') + '</strong> ' + DICT.badge('bizcaseStatus', c.status));
+          const strs = (c.relatedStrategies || []).map(function (s) {
+            return s.deleted
+              ? '<span class="str-chip deleted" title="战略已删除">#' + escHtml(s.id) + '（已删除）</span>'
+              : '<span class="str-chip">#' + escHtml(s.id) + ' ' + escHtml(s.title || '') + '</span>';
+          }).join('') || '<span class="text-muted">（未关联）</span>';
+          const html =
+            '<div class="row mb-2" style="font-size:13px;">'
+            + '<div class="col-4">一次性成本：' + escHtml(fmtAmount(c.onetimeCost)) + ' 元</div>'
+            + '<div class="col-4">年运营成本：' + escHtml(fmtAmount(c.annualOpCost)) + ' 元</div>'
+            + '<div class="col-4">量化收益/年：' + escHtml(fmtAmount(c.annualBenefit)) + ' 元</div>'
+            + '<div class="col-3">年净收益：' + escHtml(fmtAmount(c.netBenefit)) + ' 元</div>'
+            + '<div class="col-3">回收期：' + escHtml(fmtPayback(c.paybackYears)) + '</div>'
+            + '<div class="col-3">ROI：' + escHtml(fmtRoi(c.roiPercent)) + '</div>'
+            + '<div class="col-3">RICE：' + escHtml(c.riceScore != null ? c.riceScore : '-') + '</div>'
+            + '<div class="col-4">R/I/C/E：' + escHtml(c.reach + ' / ' + c.impact + ' / ' + c.confidence + ' / ' + c.effort) + '</div>'
+            + '<div class="col-4">状态：' + DICT.badge('bizcaseStatus', c.status) + '</div>'
+            + '<div class="col-4">创建人：' + escHtml(c.createBy || '-') + '</div>'
+            + '</div>'
+            + '<div class="sec-title">描述</div><div class="sec-body">' + escHtml(c.description || '（未填写）') + '</div>'
+            + '<div class="sec-title">关联战略</div><div class="sec-body">' + strs + '</div>'
+            + (c.rejectedReason ? '<div class="sec-title">拒绝原因</div><div class="sec-body">' + escHtml(c.rejectedReason) + '</div>' : '')
+            + (c.decisionNote ? '<div class="sec-title">决策记录</div><div class="sec-body">' + escHtml(c.decisionNote) + '</div>' : '');
+          // 字段级转义后再过公共 DOM 清洗（sanitize.js）注入 innerHTML——防漏转义的纵深防御
+          $('#viewBody').html(typeof window.sanitizeHtml === 'function' ? window.sanitizeHtml(html) : html);
+          new bootstrap.Modal('#viewModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      // ---- 新建 / 编辑（B2/B4；计算字段只读回显、不入提交体——防伪造）----
+      function openEdit(prefill) {
+        prefill = prefill || {};
+        $('#fId').val(prefill.id || '');
+        $('#fCaseName').val(prefill.caseName || '');
+        $('#fDescription').val(prefill.description || '');
+        renderStrategyBoxes(prefill.relatedStrategyIds || []);
+        $('#fOnetimeCost').val(prefill.onetimeCost != null ? prefill.onetimeCost : '');
+        $('#fAnnualOpCost').val(prefill.annualOpCost != null ? prefill.annualOpCost : '');
+        $('#fAnnualBenefit').val(prefill.annualBenefit != null ? prefill.annualBenefit : '');
+        $('#fReach').html(scaleOptions(1, 10, prefill.reach));
+        $('#fImpact').html(scaleOptions(1, 10, prefill.impact));
+        $('#fEffort').html(scaleOptions(1, 10, prefill.effort));
+        $('#fConfidence').html(confidenceOptions(prefill.confidence));
+        renderCalcBox(prefill);
+        $('#modalTitle').text(prefill.id ? '编辑案例 #' + prefill.id : '新建案例');
+        new bootstrap.Modal('#editModal').show();
+      }
+      function scaleOptions(min, max, selected) {
+        let html = '<option value="">请选择</option>';
+        for (let i = min; i <= max; i++) {
+          html += '<option value="' + i + '"' + (String(selected) === String(i) ? ' selected' : '') + '>' + i + '</option>';
+        }
+        return html;
+      }
+      // Confidence 0.1 步进离散恰十档（0.1~1.0）——AC-F2.4
+      function confidenceOptions(selected) {
+        let html = '<option value="">请选择</option>';
+        for (let i = 1; i <= 10; i++) {
+          const v = (i / 10).toFixed(1);
+          html += '<option value="' + v + '"' + (String(selected) === v ? ' selected' : '') + '>' + v + '</option>';
+        }
+        return html;
+      }
+      function renderCalcBox(c) {
+        if (!c || c.id == null) {
+          $('#calcBox').text('计算字段（服务端按输入自动重算，只读）：保存后显示——年净收益 / 回收期 / ROI / RICE');
+          return;
+        }
+        $('#calcBox').text('计算字段（服务端按输入自动重算，只读）：年净收益 ' + fmtAmount(c.netBenefit)
+          + ' 元 · 回收期 ' + fmtPayback(c.paybackYears)
+          + ' · ROI ' + fmtRoi(c.roiPercent)
+          + ' · RICE ' + (c.riceScore != null ? c.riceScore : '-'));
+      }
+
+      $('#newBtn').on('click', function () { openEdit(null); });
+
+      $('#tbody').on('click', '.a-edit', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/business-cases/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const c = resp.data || {};
+          if (c.status !== 'draft') { alert('非草稿状态输入不可改（已批准请复盘或新建案例）'); return; }
+          openEdit(c);
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const onetimeCost = parseFloat($('#fOnetimeCost').val());
+        const annualOpCost = parseFloat($('#fAnnualOpCost').val());
+        const annualBenefit = parseFloat($('#fAnnualBenefit').val());
+        // 前端先拦（后端 400 兜底）：必填金额非负 + 四因子经下拉天然限定离散档
+        if (isNaN(onetimeCost) || isNaN(annualOpCost) || isNaN(annualBenefit)) { alert('三个金额均为必填数字'); return; }
+        if (onetimeCost < 0 || annualOpCost < 0 || annualBenefit < 0) { alert('金额不能为负'); return; }
+        if ($('#fReach').val() === '' || $('#fImpact').val() === '' || $('#fEffort').val() === '' || $('#fConfidence').val() === '') {
+          alert('RICE 四因子（触达/影响/信心/工作量）均必选'); return;
+        }
+        const body = {
+          caseName: $('#fCaseName').val().trim(),
+          description: $('#fDescription').val(),
+          relatedStrategyIds: collectStrategyIds(),
+          onetimeCost: onetimeCost,
+          annualOpCost: annualOpCost,
+          annualBenefit: annualBenefit,
+          reach: Number($('#fReach').val()),
+          impact: Number($('#fImpact').val()),
+          confidence: Number($('#fConfidence').val()),
+          effort: Number($('#fEffort').val())
+          // 四个计算字段（netBenefit/paybackYears/roiPercent/riceScore）刻意不入提交体——服务端重算，提交无效
+        };
+        if (!body.caseName) { alert('案例名不能为空'); return; }
+        const $btn = $(this).prop('disabled', true);
+        const req = id ? API.bizPut('/api/v1/business-cases/' + id, body) : API.bizPost('/api/v1/business-cases', body);
+        req.done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadList();
+          } else { alert(rmsg(resp, '保存失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '保存失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 状态流转（B7：bizcase:approve——按钮仅审批人可见，后端 40301 兜底）----
+      $('#tbody').on('click', '.a-transit', function () {
+        const id = $(this).data('id');
+        const st = $(this).data('status');
+        const opts = TRANSITS[st] || [];
+        if (!opts.length) { alert('当前为终态，不可流转'); return; }
+        $('#tId').val(id);
+        $('#tTarget').html(opts.map(function (t) {
+          return '<option value="' + escAttr(t.to) + '">' + escHtml(t.label) + '</option>';
+        }).join(''));
+        $('#tReason').val('');
+        $('#transitTitle').text('状态流转（当前：' + DICT.text('bizcaseStatus', st) + '）');
+        syncTransitFields();
+        new bootstrap.Modal('#transitModal').show();
+      });
+      function syncTransitFields() {
+        $('#tReasonWrap').toggleClass('d-none', $('#tTarget').val() !== 'rejected');
+      }
+      $('#tTarget').on('change', syncTransitFields);
+
+      $('#transitBtn').on('click', function () {
+        const id = $('#tId').val();
+        const target = $('#tTarget').val();
+        if (!target) { alert('请选择目标状态'); return; }
+        const body = { target: target };
+        if (target === 'rejected') {
+          const reason = $('#tReason').val().trim();
+          if (!reason) { alert('拒绝必填原因'); return; }
+          body.rejectedReason = reason;
+        }
+        const $btn = $(this).prop('disabled', true);
+        API.bizPost('/api/v1/business-cases/' + id + '/transit', body).done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('transitModal')).hide();
+            loadList();
+          } else { alert(rmsg(resp, '流转失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '流转失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 决策记录（B6）----
+      $('#tbody').on('click', '.a-note', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/business-cases/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const c = resp.data || {};
+          if (NOTE_EDITABLE.indexOf(c.status) === -1) { alert('已拒绝/已完成案例决策记录只读'); return; }
+          $('#nId').val(id);
+          $('#nNote').val(c.decisionNote || '');
+          new bootstrap.Modal('#noteModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+      $('#noteBtn').on('click', function () {
+        const id = $('#nId').val();
+        const note = $('#nNote').val().trim();
+        if (!note) { alert('决策记录不能为空'); return; }
+        const $btn = $(this).prop('disabled', true);
+        API.bizPut('/api/v1/business-cases/' + id + '/decision-note', { decisionNote: note }).done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('noteModal')).hide();
+            loadList();
+          } else { alert(rmsg(resp, '保存失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '保存失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 删除（B5：仅 draft）----
+      $('#tbody').on('click', '.a-del', function () {
+        const id = $(this).data('id');
+        if (!confirm('确认删除该草稿案例？非草稿案例为合规资产不可删除；删除后列表不可见、审计留痕。')) return;
+        API.bizDelete('/api/v1/business-cases/' + id).done(function (resp) {
+          if (ok(resp)) loadList();
+          else { alert(rmsg(resp, '删除失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '删除失败')); });
+      });
+
+      // ---- 投资组合（B8：cases 全量 + summary 投资口径后端算 + statusDistribution 全量五态）----
+      function loadPortfolio() {
+        $('#sumCards').html('<span class="text-muted">加载中...</span>');
+        $('#statusDist').html('<span class="text-muted">加载中...</span>');
+        $('#pfTbody').html('<tr class="empty-row"><td colspan="7">加载中...</td></tr>');
+        const params = new URLSearchParams();
+        params.set('page', pfState.page);
+        params.set('size', pfState.size);
+        API.bizGet('/api/v1/business-cases/portfolio?' + params.toString()).done(function (resp) {
+          if (!ok(resp)) {
+            $('#sumCards').html('<span class="text-danger">' + escHtml(rmsg(resp, '加载失败')) + '</span>');
+            return;
+          }
+          const d = resp.data || {};
+          renderSummary(d.summary || {});
+          renderStatusDist(d.statusDistribution || {});
+          renderPfTable(d.cases || {});
+          portfolioLoaded = true;
+        }).fail(function (xhr) {
+          $('#sumCards').html('<span class="text-danger">' + escHtml(xhrMsg(xhr, '加载失败')) + '</span>');
+        });
+      }
+
+      function renderSummary(s) {
+        const items = [
+          { label: '总一次性投入', v: s.totalOnetimeCost },
+          { label: '总年运营成本', v: s.totalAnnualOpCost },
+          { label: '总年化净收益', v: s.totalAnnualNetBenefit },
+          { label: '总 3 年净收益', v: s.totalThreeYearNetBenefit }
+        ];
+        $('#sumCards').html(items.map(function (it) {
+          const neg = it.v != null && it.v < 0; // 负值合法正常展示（红字标注）
+          return '<div class="sum-card"><div class="text-muted" style="font-size:12px;">' + escHtml(it.label) + '</div>'
+            + '<div class="num' + (neg ? ' neg' : '') + '" title="' + escAttr(String(it.v != null ? it.v : 0) + ' 元') + '">'
+            + escHtml(fmtAmount(it.v)) + ' 元</div></div>';
+        }).join(''));
+      }
+
+      function renderStatusDist(dist) {
+        $('#statusDist').html(['draft', 'approved', 'rejected', 'executing', 'done'].map(function (k) {
+          return '<div class="d-flex justify-content-between align-items-center mb-1">'
+            + DICT.badge('bizcaseStatus', k)
+            + '<strong>' + (dist[k] != null ? dist[k] : 0) + '</strong></div>';
+        }).join(''));
+      }
+
+      function renderPfTable(page) {
+        const list = (page && (page.records || page.list)) || [];
+        pfState.total = page && page.total != null ? page.total : list.length;
+        if (!list.length) {
+          $('#pfTbody').html('<tr class="empty-row"><td colspan="7">暂无案例</td></tr>');
+        } else {
+          $('#pfTbody').html(list.map(function (c) {
+            return '<tr>'
+              + '<td><strong>' + escHtml(c.caseName || '') + '</strong></td>'
+              + '<td>' + DICT.badge('bizcaseStatus', c.status) + '</td>'
+              + '<td><strong>' + escHtml(c.riceScore != null ? c.riceScore : '-') + '</strong></td>'
+              + '<td>' + escHtml(fmtPayback(c.paybackYears)) + '</td>'
+              + '<td>' + escHtml(fmtRoi(c.roiPercent)) + '</td>'
+              + '<td title="' + escAttr(String(c.onetimeCost != null ? c.onetimeCost : 0) + ' 元') + '">' + escHtml(fmtAmount(c.onetimeCost)) + '</td>'
+              + '<td title="' + escAttr(String(c.netBenefit != null ? c.netBenefit : 0) + ' 元') + '">' + escHtml(fmtAmount(c.netBenefit)) + '</td>'
+              + '</tr>';
+          }).join(''));
+        }
+        const totalPages = Math.max(1, Math.ceil(pfState.total / pfState.size));
+        $('#pfPageInfo').text('共 ' + pfState.total + ' 条，第 ' + pfState.page + '/' + totalPages + ' 页');
+        $('#pfPrevBtn').prop('disabled', pfState.page <= 1);
+        $('#pfNextBtn').prop('disabled', pfState.page >= totalPages);
+      }
+
+      $('#portfolioRefreshBtn').on('click', loadPortfolio);
+      $('#pfPrevBtn').on('click', function () { if (pfState.page > 1) { pfState.page--; loadPortfolio(); } });
+      $('#pfNextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(pfState.total / pfState.size));
+        if (pfState.page < totalPages) { pfState.page++; loadPortfolio(); }
+      });
+
+      // ---- Tab 切换 ----
+      function switchTab(name) {
+        $('[data-tab]').removeClass('active');
+        $('[data-tab="' + name + '"]').addClass('active');
+        $('.tab-pane').removeClass('show active');
+        $('#pane-' + name).addClass('show active');
+        if (name === 'portfolio' && !portfolioLoaded) loadPortfolio();
+      }
+      $(document).on('click', '[data-tab]', function (e) { e.preventDefault(); switchTab($(this).data('tab')); });
+
+      // ---- 事件绑定 ----
+      $('#statusFilter').on('change', function () { state.status = $(this).val(); state.page = 1; loadList(); });
+      $('#strategyFilter').on('change', function () { state.strategyId = $(this).val(); state.page = 1; loadList(); });
+      $('#searchBtn').on('click', function () { state.keyword = $('#keywordInput').val().trim(); state.page = 1; loadList(); });
+      $('#keywordInput').on('keydown', function (e) { if (e.key === 'Enter') $('#searchBtn').click(); });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+
+      // ---- 工具 ----
+      function escHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function escAttr(s) { return escHtml(s); }
+      // 金额展示缩写（裁决 Q2 前端侧）：≥1 亿→x.xx亿、≥1 万→x.xx万、否则原值；title 悬停显精确值
+      function fmtAmount(v) {
+        if (v == null) return '-';
+        const n = Number(v);
+        if (isNaN(n)) return String(v);
+        const abs = Math.abs(n);
+        if (abs >= 1e8) return trimNum(n / 1e8) + '亿';
+        if (abs >= 1e4) return trimNum(n / 1e4) + '万';
+        return trimNum(n);
+      }
+      function trimNum(n) {
+        return parseFloat(n.toFixed(2)).toString();
+      }
+
+      // ---- 初始化 ----
+      $('#statusFilter').html(DICT.options('bizcaseStatus', '', '全部'));
+      $.when(loadPerm(), loadStrategies()).always(function () {
+        renderStrategyBoxes([]);
+        loadList();
+      });
+    });
+  </script>
+</body>
+</html>

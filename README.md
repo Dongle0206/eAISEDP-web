@@ -28,7 +28,7 @@ eAISEDP 企业级 AI 软件工程平台前端。
         ├── api.js           API 封装（自动带 token + 401 跳登录）
         ├── auth.js          登录态管理
         ├── menu.js          角色动态菜单
-        ├── governance-dict.js  治理域枚举文案与样式集中定义（标准状态/资产类型/敏感等级色阶/检查类型/试用提示三档）
+        ├── governance-dict.js  治理域枚举文案与样式集中定义（标准状态/资产类型/敏感等级色阶/检查类型/试用提示三档；L3收口：风险类别/风险状态/风险等级四档色阶/合规框架/检查结果四色/案例状态）
         ├── sanitize.js       HTML DOM 级清洗（markdown 渲染防 XSS，window.sanitizeHtml，renderMd 统一复用）
         ├── i18n.js          国际化预留
         └── lib/

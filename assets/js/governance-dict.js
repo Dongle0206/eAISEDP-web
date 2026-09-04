@@ -11,6 +11,15 @@
  *   - checkResult     检查结果（pass/fail）
  *   - trialTip        试用临期提示三档（normal 蓝 / warning 黄 / critical 红，PRD §4.3.1）
  *
+ * case-20260821 L3收口追加（T5，三新页 risk-board / compliance-check-list / business-case-list
+ * 统一引用，禁止散落各页面重复定义）：
+ *   - riskCategory        风险类别（strategy/compliance/operations/technical/security）
+ *   - riskStatus          风险状态（open/mitigating/closed）
+ *   - riskLevel           风险等级四档色阶（low/medium/high/critical，cls=徽章 + heat=热力图格子底色）
+ *   - complianceFramework 合规框架（djba2.0=等保 2.0/iso27001/gdpr/custom）
+ *   - complianceResult    检查结果四色（pass/fail/partial/na）
+ *   - bizcaseStatus       案例状态（draft/approved/rejected/executing/done）
+ *
  * 模板类型为开放字典（P6 裁决），不在此穷举——由 template-list 页"预置 5 值 + 列表数据聚合
  * 自定义值"生成候选（AC-F1.10）。
  *
@@ -40,7 +49,38 @@
     // 试用临期提示条三档（normal 蓝 / warning 黄 / critical 红，PRD §4.3.1）
     '.gov-tip-normal{background:#e6f4ff;color:#1677ff;border:1px solid #91caff;}',
     '.gov-tip-warning{background:#fffbe6;color:#d48806;border:1px solid #ffe58f;}',
-    '.gov-tip-critical{background:#fff1f0;color:#f5222d;border:1px solid #ffa39e;font-weight:700;}'
+    '.gov-tip-critical{background:#fff1f0;color:#f5222d;border:1px solid #ffa39e;font-weight:700;}',
+
+    // ---- case-20260821 L3收口追加 ----
+    // 风险等级四档徽章（低→极高递进，PRD §4.1.2 等级映射 [1,6]/[7,12]/[13,19]/[20,25]）
+    '.gov-risk-low{background:#f6ffed;color:#52c41a;}',
+    '.gov-risk-medium{background:#e6f4ff;color:#1677ff;}',
+    '.gov-risk-high{background:#fff7e6;color:#fa8c16;}',
+    '.gov-risk-critical{background:#fff1f0;color:#f5222d;font-weight:700;}',
+
+    // 5×5 热力图格子底色四档（低→极高递进，纯 CSS Grid 用——AC-F1.12，Q4 裁决不引图表库）
+    '.gov-heat-low{background:#dcf5c8;}',
+    '.gov-heat-medium{background:#b3d9ff;}',
+    '.gov-heat-high{background:#ffd591;}',
+    '.gov-heat-critical{background:#ff9c94;}',
+
+    // 风险状态徽章（open 开放中 / mitigating 缓解中 / closed 已关闭）
+    '.gov-rs-open{background:#e6f4ff;color:#1677ff;}',
+    '.gov-rs-mitigating{background:#fff7e6;color:#fa8c16;}',
+    '.gov-rs-closed{background:#f5f5f5;color:#999;}',
+
+    // 合规检查结果四色徽章（pass/fail/partial/na——AC-F1.8 结果徽章四色区分）
+    '.gov-ccr-pass{background:#f6ffed;color:#52c41a;}',
+    '.gov-ccr-fail{background:#fff1f0;color:#f5222d;}',
+    '.gov-ccr-partial{background:#fff7e6;color:#fa8c16;}',
+    '.gov-ccr-na{background:#f5f5f5;color:#999;}',
+
+    // 案例状态徽章（draft/approved/rejected/executing/done——PRD §4.4.2 状态机）
+    '.gov-bc-draft{background:#e6f4ff;color:#1677ff;}',
+    '.gov-bc-approved{background:#f6ffed;color:#52c41a;}',
+    '.gov-bc-rejected{background:#fff1f0;color:#f5222d;}',
+    '.gov-bc-executing{background:#e6fffb;color:#13c2c2;}',
+    '.gov-bc-done{background:#f9f0ff;color:#722ed1;}'
   ].join('\n');
   var style = document.createElement('style');
   style.type = 'text/css';
@@ -81,6 +121,51 @@
       normal: { text: '试用提示', cls: 'gov-tip-normal' },
       warning: { text: '试用临期', cls: 'gov-tip-warning' },
       critical: { text: '试用即将到期', cls: 'gov-tip-critical' }
+    },
+
+    // ---- case-20260821 L3收口追加（T5）：risk-board / compliance-check-list / business-case-list 三新页统一引用 ----
+    /** 风险类别（领域数据字典，P6 裁决——PRD §4.1.1） */
+    riskCategory: {
+      strategy: { text: '战略' },
+      compliance: { text: '合规' },
+      operations: { text: '运营' },
+      technical: { text: '技术' },
+      security: { text: '安全' }
+    },
+    /** 风险状态（open→mitigating→closed 状态机，mitigating→open 回退合法） */
+    riskStatus: {
+      open: { text: '开放中', cls: 'gov-rs-open' },
+      mitigating: { text: '缓解中', cls: 'gov-rs-mitigating' },
+      closed: { text: '已关闭', cls: 'gov-rs-closed' }
+    },
+    /** 风险等级四档（cls=徽章色阶；heat=5×5 热力图格子底色档——T14 纯 CSS Grid 用） */
+    riskLevel: {
+      low: { text: '低', cls: 'gov-risk-low', heat: 'gov-heat-low' },
+      medium: { text: '中', cls: 'gov-risk-medium', heat: 'gov-heat-medium' },
+      high: { text: '高', cls: 'gov-risk-high', heat: 'gov-heat-high' },
+      critical: { text: '极高', cls: 'gov-risk-critical', heat: 'gov-heat-critical' }
+    },
+    /** 合规框架（djba2.0 展示名=等保 2.0；custom 联动 frameworkName——AC-F1.9） */
+    complianceFramework: {
+      'djba2.0': { text: '等保 2.0' },
+      iso27001: { text: 'ISO27001' },
+      gdpr: { text: 'GDPR' },
+      custom: { text: '自定义' }
+    },
+    /** 合规检查结果四色（pass/fail/partial/na） */
+    complianceResult: {
+      pass: { text: '通过', cls: 'gov-ccr-pass' },
+      fail: { text: '未通过', cls: 'gov-ccr-fail' },
+      partial: { text: '部分通过', cls: 'gov-ccr-partial' },
+      na: { text: '不适用', cls: 'gov-ccr-na' }
+    },
+    /** 商业案例状态（draft→approved→executing→done；draft→rejected；终态无出边——PRD §4.4.2） */
+    bizcaseStatus: {
+      draft: { text: '草稿', cls: 'gov-bc-draft' },
+      approved: { text: '已批准', cls: 'gov-bc-approved' },
+      rejected: { text: '已拒绝', cls: 'gov-bc-rejected' },
+      executing: { text: '执行中', cls: 'gov-bc-executing' },
+      done: { text: '已完成', cls: 'gov-bc-done' }
     }
   };
 

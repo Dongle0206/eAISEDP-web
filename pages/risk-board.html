@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>风险登记册 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .sec-title { font-weight:700; font-size:13px; color:#1677ff; margin-bottom:2px; }
+    .sec-body { font-size:13px; color:#333; background:#fafafa; border-radius:6px; padding:8px 12px; margin-bottom:10px; white-space:pre-wrap; }
+    .overdue-flag { color:#f5222d; font-weight:700; }
+    .ov-badge { display:inline-block; background:#fff1f0; color:#f5222d; border:1px solid #ffa39e; border-radius:10px; padding:0 6px; font-size:11px; margin-left:4px; }
+    .rel-chip { display:inline-block; background:#f9f0ff; color:#722ed1; border-radius:9px; padding:1px 8px; font-size:12px; margin:1px 4px 1px 0; }
+    .rel-chip.deleted { background:#f5f5f5; color:#999; text-decoration:line-through; }
+    .ck-box { display:inline-block; border:1px solid #d3adf7; border-radius:8px; padding:3px 10px; margin:0 6px 6px 0; font-size:13px; cursor:pointer; }
+    .ck-box input { margin-right:4px; }
+    /* 5×5 热力图（纯 CSS Grid——Q4 裁决不引图表库；X=影响 I1~I5，Y=概率 P5~P1 写死） */
+    .heat-grid { display:grid; grid-template-columns:56px repeat(5, 1fr); gap:4px; max-width:560px; }
+    .heat-axis { display:flex; align-items:center; justify-content:center; font-size:12px; color:#666; }
+    .heat-cell { min-height:58px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:15px; color:#333; background:#fafafa; border:1px solid #eee; }
+    .heat-cell.has-count { font-weight:700; cursor:pointer; border-color:transparent; }
+    .heat-cell.zero { color:#bbb; }
+    .dist-card { border:1px solid #eee; border-radius:8px; background:#fff; padding:10px 14px; min-width:110px; }
+    .dist-card .num { font-size:22px; font-weight:700; }
+    .board-hint { font-size:12px; color:#999; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 页头 + 双 tab（清单 / 看板，D-9 并页） -->
+    <ul class="nav nav-tabs mb-3">
+      <li class="nav-item"><a class="nav-link active" href="#" data-tab="list">风险清单</a></li>
+      <li class="nav-item"><a class="nav-link" href="#" data-tab="board">风险看板</a></li>
+    </ul>
+
+    <!-- ============ Tab 1：风险清单 ============ -->
+    <div class="tab-pane show active" id="pane-list">
+      <div class="toolbar">
+        <h5 class="mb-0">风险登记册</h5>
+        <span class="text-muted" style="font-size:13px;">概率×影响=风险值（1~25），等级四档自动映射；不限分层</span>
+        <div class="spacer"></div>
+        <label class="mb-0 d-flex align-items-center" style="gap:4px;">
+          <span class="text-muted">类别：</span>
+          <select id="categoryFilter" class="form-select form-select-sm" style="width:auto;"></select>
+        </label>
+        <label class="mb-0 d-flex align-items-center" style="gap:4px;">
+          <span class="text-muted">等级：</span>
+          <select id="levelFilter" class="form-select form-select-sm" style="width:auto;"></select>
+        </label>
+        <label class="mb-0 d-flex align-items-center" style="gap:4px;">
+          <span class="text-muted">状态：</span>
+          <select id="statusFilter" class="form-select form-select-sm" style="width:auto;"></select>
+        </label>
+        <label class="mb-0 d-flex align-items-center" style="gap:4px; font-size:13px;">
+          <input type="checkbox" id="overdueOnly" class="form-check-input mt-0"> <span class="text-muted">仅看逾期</span>
+        </label>
+        <input id="keywordInput" class="form-control form-control-sm" style="width:160px;" placeholder="风险名关键字">
+        <button id="searchBtn" class="btn btn-outline-secondary btn-sm">搜索</button>
+        <button id="newBtn" class="btn btn-primary btn-sm" style="display:none;">+ 登记风险</button>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-bordered table-hover bg-white mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>风险名</th>
+              <th style="width:70px;">类别</th>
+              <th style="width:50px;">概率</th>
+              <th style="width:50px;">影响</th>
+              <th style="width:70px;">风险值</th>
+              <th style="width:70px;">等级</th>
+              <th style="width:90px;">owner</th>
+              <th style="width:80px;">状态</th>
+              <th style="width:120px;">复评日期</th>
+              <th style="width:230px;">操作</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr class="empty-row"><td colspan="10">加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pager">
+        <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+        <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+        <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+        <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+          <option value="10">10/页</option>
+          <option value="20">20/页</option>
+          <option value="50">50/页</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- ============ Tab 2：风险看板（R7 聚合） ============ -->
+    <div class="tab-pane" id="pane-board">
+      <div class="toolbar">
+        <h5 class="mb-0">风险看板</h5>
+        <span class="text-muted" style="font-size:13px;">仅统计未关闭（open/mitigating）风险</span>
+        <div class="spacer"></div>
+        <button id="boardRefreshBtn" class="btn btn-outline-secondary btn-sm">刷新</button>
+      </div>
+
+      <!-- 等级分布四卡 -->
+      <div class="d-flex gap-2 flex-wrap mb-3" id="distCards"><span class="text-muted">加载中...</span></div>
+
+      <div class="row">
+        <!-- 5×5 热力图：X=影响（I1~I5），Y=概率（P5 顶部 → P1 底部）写死 -->
+        <div class="col-md-6">
+          <div class="bg-white border rounded p-3">
+            <div class="sec-title">风险热力图（概率 × 影响，格内为风险数；点击格子下钻清单）</div>
+            <div class="heat-grid mt-2" id="heatGrid"></div>
+            <div class="board-hint mt-2">X 轴=影响（I1~I5）、Y 轴=概率（P1~P5）；格子底色=该格风险值等级四档色阶（低→极高）。</div>
+          </div>
+        </div>
+        <!-- 高风险清单 -->
+        <div class="col-md-6">
+          <div class="bg-white border rounded p-3">
+            <div class="sec-title">高风险清单（等级=高/极高，未关闭；风险值降序）</div>
+            <div class="table-responsive mt-2">
+              <table class="table table-sm table-bordered mb-0" style="font-size:13px;">
+                <thead class="table-light">
+                  <tr>
+                    <th>风险名</th><th style="width:36px;">P</th><th style="width:36px;">I</th>
+                    <th style="width:50px;">值</th><th style="width:60px;">等级</th>
+                    <th style="width:70px;">owner</th><th style="width:70px;">状态</th><th style="width:100px;">复评日期</th>
+                  </tr>
+                </thead>
+                <tbody id="highTbody"><tr class="empty-row"><td colspan="8">加载中...</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 详情弹窗 -->
+  <div class="modal fade" id="viewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="viewTitle">风险详情</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="viewBody"></div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">关闭</button></div>
+    </div></div>
+  </div>
+
+  <!-- 新建/编辑弹窗 -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">登记风险</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="row">
+          <div class="col-6 mb-2"><label class="form-label small">风险名 <span class="text-danger">*</span></label><input id="fRiskName" class="form-control form-control-sm" maxlength="200"></div>
+          <div class="col-3 mb-2"><label class="form-label small">类别 <span class="text-danger">*</span></label><select id="fCategory" class="form-select form-select-sm"></select></div>
+          <div class="col-3 mb-2"><label class="form-label small">owner <span class="text-danger">*</span></label><input id="fOwner" class="form-control form-control-sm" maxlength="64"></div>
+        </div>
+        <div class="row">
+          <div class="col-3 mb-2"><label class="form-label small">概率（1~5）<span class="text-danger">*</span></label>
+            <select id="fProbability" class="form-select form-select-sm"></select></div>
+          <div class="col-3 mb-2"><label class="form-label small">影响（1~5）<span class="text-danger">*</span></label>
+            <select id="fImpact" class="form-select form-select-sm"></select></div>
+          <div class="col-3 mb-2"><label class="form-label small">复评日期</label><input type="date" id="fReviewDate" class="form-control form-control-sm"></div>
+          <div class="col-3 mb-2 d-flex align-items-end"><span class="text-muted" style="font-size:12px;">风险值/等级由服务端按 P×I 自动计算，无需填写</span></div>
+        </div>
+        <div class="mb-2"><label class="form-label small">描述</label><textarea id="fDescription" class="form-control form-control-sm" rows="2"></textarea></div>
+        <div class="mb-2"><label class="form-label small">缓解措施</label><textarea id="fMitigation" class="form-control form-control-sm" rows="2"></textarea></div>
+        <div class="mb-2"><label class="form-label small">应急预案</label><textarea id="fContingencyPlan" class="form-control form-control-sm" rows="2"></textarea></div>
+        <div class="mb-2">
+          <label class="form-label small">关联对象（可空多选：项目群 / 项目 / Case）</label>
+          <ul class="nav nav-tabs nav-fill" style="font-size:13px;">
+            <li class="nav-item"><a class="nav-link active" href="#" data-rtab="program">项目群</a></li>
+            <li class="nav-item"><a class="nav-link" href="#" data-rtab="project">项目</a></li>
+            <li class="nav-item"><a class="nav-link" href="#" data-rtab="case">Case</a></li>
+          </ul>
+          <div class="border border-top-0 rounded-bottom p-2" style="min-height:52px;">
+            <div id="relPane-program" class="rel-pane"></div>
+            <div id="relPane-project" class="rel-pane d-none"></div>
+            <div id="relPane-case" class="rel-pane d-none"></div>
+          </div>
+          <div class="text-muted" style="font-size:12px;">某层未启用（43001/43002）时对应选择器静默降级为空列表，功能不受影响。</div>
+        </div>
+        <div class="text-muted" style="font-size:12px;">创建后默认"开放中"；开放中/缓解中可编辑（编辑即重算风险值）；关闭需流转并必填处置说明。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <!-- 状态流转弹窗 -->
+  <div class="modal fade" id="transitModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="transitTitle">状态流转</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="tId">
+        <div class="mb-2"><label class="form-label small">目标状态 <span class="text-danger">*</span></label>
+          <select id="tTarget" class="form-select form-select-sm"></select></div>
+        <div class="mb-2 d-none" id="tNoteWrap"><label class="form-label small">处置说明（resolutionNote）<span class="text-danger">*</span></label>
+          <textarea id="tNote" class="form-control form-control-sm" rows="3" placeholder="如：已转移供应商 / 风险已消除"></textarea></div>
+        <div class="text-muted" style="font-size:12px;">状态机：open→mitigating→closed（关闭必填处置说明）；mitigating→open 回退合法；closed 终态只读。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="transitBtn" class="btn btn-primary btn-sm">确认流转</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/governance-dict.js"></script>
+  <script src="../assets/js/sanitize.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      const DICT = window.GOV_DICT;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      // 状态机（契约 R6）：open→mitigating；mitigating→closed（必填说明）/open（回退合法）；closed 终态
+      const TRANSITS = {
+        open: [{ to: 'mitigating', label: '开始缓解（mitigating）' }],
+        mitigating: [
+          { to: 'closed', label: '关闭（closed，必填处置说明）' },
+          { to: 'open', label: '回退（open，缓解无效/风险复燃）' }
+        ],
+        closed: []
+      };
+      const REL_TYPE_TEXT = { program: '项目群', project: '项目', case: 'Case' };
+
+      const state = { page: 1, size: 10, category: '', level: '', status: '', overdueOnly: false, keyword: '', total: 0 };
+      const perm = { write: false }; // risk:create/edit 角色：platform_admin/tenant_admin/project_manager（engineer/executive 只读，后端 403 兜底）
+      let selectors = { program: [], project: [], case: [] };
+      let boardLoaded = false;
+
+      // ---- 响应工具：兼容 code=0（既有端点）与 code=200（本 case 契约） ----
+      function ok(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
+      function xhrMsg(xhr, d) { return (xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || d || ('请求失败（' + xhr.status + '）'); }
+
+      // ---- 写权限（风险一线登记：PM 亦可写——PRD §4.6 矩阵）----
+      function loadPerm() {
+        const d = $.Deferred();
+        API.current().done(function (resp) {
+          if (!ok(resp)) { d.resolve(); return; }
+          const roles = ((resp.data || {}).roleCodes) || [];
+          perm.write = roles.indexOf('platform_admin') !== -1 || roles.indexOf('tenant_admin') !== -1 || roles.indexOf('project_manager') !== -1;
+          if (perm.write) $('#newBtn').show();
+          d.resolve();
+        }).fail(function () { d.resolve(); /* 保持只读，后端 403 兜底 */ });
+        return d.promise();
+      }
+
+      // ---- 关联对象选择器（T17 场景 C：43001/43002 或请求失败 → 静默降级空列表，不弹错误）----
+      function loadSilent(url, mapFn) {
+        const d = $.Deferred();
+        API.bizGet(url).done(function (resp) {
+          if (ok(resp) && resp.data) {
+            const list = resp.data.records || resp.data.list || [];
+            d.resolve(list.map(mapFn));
+          } else { d.resolve([]); }
+        }).fail(function () { d.resolve([]); });
+        return d.promise();
+      }
+      function loadSelectors() {
+        return $.when(
+          loadSilent('/api/v1/programs?page=1&size=500', function (p) { return { id: p.id, name: p.name || ('#' + p.id) }; }),
+          loadSilent('/api/v1/projects?page=1&size=500', function (p) { return { id: p.id, name: p.name || ('#' + p.id) }; }),
+          loadSilent('/api/v1/cases?page=1&size=500', function (c) { return { id: c.caseId, name: c.title || String(c.caseId || '') }; })
+        ).done(function (pgs, pjs, cs) {
+          selectors.program = pgs || [];
+          selectors.project = pjs || [];
+          selectors.case = cs || [];
+        });
+      }
+
+      function renderRelPanes(selected) {
+        selected = selected || [];
+        ['program', 'project', 'case'].forEach(function (type) {
+          const items = selectors[type] || [];
+          const $pane = $('#relPane-' + type);
+          if (!items.length) {
+            $pane.html('<span class="text-muted" style="font-size:13px;">暂无可选对象</span>');
+            return;
+          }
+          $pane.html(items.map(function (it) {
+            const checked = selected.some(function (s) { return s.type === type && String(s.id) === String(it.id); }) ? ' checked' : '';
+            return '<label class="ck-box"><input type="checkbox" class="rel-ck" data-type="' + escAttr(type) + '" value="' + escAttr(it.id) + '"' + checked + '>'
+              + escHtml(REL_TYPE_TEXT[type] + ' #' + it.id + ' ' + it.name) + '</label>';
+          }).join(''));
+        });
+      }
+      function collectRelated() {
+        const arr = [];
+        $('#editModal .rel-ck:checked').each(function () {
+          arr.push({ type: $(this).data('type'), id: $(this).val() });
+        });
+        return arr;
+      }
+      $(document).on('click', '#editModal [data-rtab]', function (e) {
+        e.preventDefault();
+        $('#editModal [data-rtab]').removeClass('active');
+        $(this).addClass('active');
+        const t = $(this).data('rtab');
+        $('#editModal .rel-pane').addClass('d-none');
+        $('#relPane-' + t).removeClass('d-none');
+      });
+
+      // ---- 列表（R1：默认风险值降序，服务端排序）----
+      function loadList() {
+        $('#tbody').html('<tr class="empty-row"><td colspan="10">加载中...</td></tr>');
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.category) params.set('category', state.category);
+        if (state.level) params.set('level', state.level);
+        if (state.status) params.set('status', state.status);
+        if (state.overdueOnly) params.set('overdueOnly', '1');
+        if (state.keyword) params.set('keyword', state.keyword);
+        API.bizGet('/api/v1/risks?' + params.toString()).done(function (resp) {
+          if (!ok(resp)) {
+            $('#tbody').html('<tr class="empty-row"><td colspan="10">' + escHtml(rmsg(resp, '加载失败')) + '</td></tr>');
+            $('#pageInfo').html('');
+            return;
+          }
+          const data = resp.data || {};
+          const list = data.records || data.list || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="10">' + escHtml(xhrMsg(xhr, '加载失败')) + '</td></tr>');
+        });
+      }
+
+      function reviewCell(r) {
+        if (!r.reviewDate) return '<span class="text-muted">-</span>';
+        // overdue 布尔由服务端统一判定（D-10 防时钟偏差），前端红标直消费 VO 字段
+        return '<span' + (r.overdue ? ' class="overdue-flag"' : '') + '>' + escHtml(r.reviewDate) + '</span>'
+          + (r.overdue ? '<span class="ov-badge">已逾期</span>' : '');
+      }
+
+      function renderTable(list) {
+        if (!list.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="10">暂无风险，点击右上角"登记风险"创建</td></tr>');
+          return;
+        }
+        $('#tbody').html(list.map(function (r) {
+          const st = r.status || '';
+          const btns = ['<button class="btn btn-sm btn-outline-primary a-view" data-id="' + r.id + '">详情</button>'];
+          if (perm.write && (st === 'open' || st === 'mitigating')) {
+            btns.push('<button class="btn btn-sm btn-outline-secondary a-edit" data-id="' + r.id + '">编辑</button>');
+          }
+          if (perm.write && (TRANSITS[st] || []).length) {
+            btns.push('<button class="btn btn-sm btn-outline-success a-transit" data-id="' + r.id + '" data-status="' + escAttr(st) + '">流转</button>');
+          }
+          if (perm.write) {
+            btns.push('<button class="btn btn-sm btn-outline-danger a-del" data-id="' + r.id + '">删除</button>');
+          }
+          return '<tr>'
+            + '<td><strong>' + escHtml(r.riskName || '') + '</strong></td>'
+            + '<td>' + escHtml(DICT.text('riskCategory', r.category)) + '</td>'
+            + '<td>' + escHtml(r.probability != null ? r.probability : '-') + '</td>'
+            + '<td>' + escHtml(r.impact != null ? r.impact : '-') + '</td>'
+            + '<td><strong>' + escHtml(r.riskValue != null ? r.riskValue : '-') + '</strong></td>'
+            + '<td>' + DICT.badge('riskLevel', r.riskLevel) + '</td>'
+            + '<td>' + escHtml(r.owner || '-') + '</td>'
+            + '<td>' + DICT.badge('riskStatus', st) + '</td>'
+            + '<td>' + reviewCell(r) + '</td>'
+            + '<td style="white-space:nowrap;">' + btns.join(' ') + '</td>'
+            + '</tr>';
+        }).join(''));
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + state.page + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', state.page <= 1);
+        $('#nextBtn').prop('disabled', state.page >= totalPages);
+      }
+
+      // ---- 详情（R3：relatedObjects 含 name 与 deleted 占位）----
+      $('#tbody').on('click', '.a-view', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/risks/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const r = resp.data || {};
+          $('#viewTitle').html('<strong>' + escHtml(r.riskName || '') + '</strong> ' + DICT.badge('riskLevel', r.riskLevel) + ' ' + DICT.badge('riskStatus', r.status));
+          const rels = (r.relatedObjects || []).map(function (o) {
+            return o.deleted
+              ? '<span class="rel-chip deleted" title="关联对象已删除">' + escHtml(REL_TYPE_TEXT[o.type] || o.type) + ' #' + escHtml(o.id) + '（已删除）</span>'
+              : '<span class="rel-chip">' + escHtml(REL_TYPE_TEXT[o.type] || o.type) + ' #' + escHtml(o.id) + ' ' + escHtml(o.name || '') + '</span>';
+          }).join('') || '<span class="text-muted">（未关联）</span>';
+          const html =
+            '<div class="row mb-2" style="font-size:13px;">'
+            + '<div class="col-3">类别：' + escHtml(DICT.text('riskCategory', r.category)) + '</div>'
+            + '<div class="col-3">概率 × 影响：' + escHtml(r.probability) + ' × ' + escHtml(r.impact) + '</div>'
+            + '<div class="col-3">风险值：' + escHtml(r.riskValue) + '</div>'
+            + '<div class="col-3">owner：' + escHtml(r.owner || '-') + '</div>'
+            + '<div class="col-3">状态：' + DICT.badge('riskStatus', r.status) + '</div>'
+            + '<div class="col-5">复评日期：' + reviewCell(r) + '</div>'
+            + '<div class="col-4">创建人：' + escHtml(r.createBy || '-') + '</div>'
+            + '</div>'
+            + '<div class="sec-title">描述</div><div class="sec-body">' + escHtml(r.description || '（未填写）') + '</div>'
+            + '<div class="sec-title">缓解措施</div><div class="sec-body">' + escHtml(r.mitigation || '（未填写）') + '</div>'
+            + '<div class="sec-title">应急预案</div><div class="sec-body">' + escHtml(r.contingencyPlan || '（未填写）') + '</div>'
+            + (r.status === 'closed' ? '<div class="sec-title">处置说明</div><div class="sec-body">' + escHtml(r.resolutionNote || '（未填写）') + '</div>' : '')
+            + '<div class="sec-title">关联对象</div><div class="sec-body">' + rels + '</div>';
+          // 字段级转义后再过公共 DOM 清洗（sanitize.js）注入 innerHTML——防漏转义的纵深防御
+          $('#viewBody').html(typeof window.sanitizeHtml === 'function' ? window.sanitizeHtml(html) : html);
+          new bootstrap.Modal('#viewModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      // ---- 新建 / 编辑 ----
+      function openEdit(prefill) {
+        prefill = prefill || {};
+        $('#fId').val(prefill.id || '');
+        $('#fRiskName').val(prefill.riskName || '');
+        $('#fCategory').html(DICT.options('riskCategory', prefill.category, '请选择'));
+        $('#fOwner').val(prefill.owner || '');
+        $('#fProbability').html(scaleOptions(1, 5, prefill.probability));
+        $('#fImpact').html(scaleOptions(1, 5, prefill.impact));
+        $('#fReviewDate').val(prefill.reviewDate || '');
+        $('#fDescription').val(prefill.description || '');
+        $('#fMitigation').val(prefill.mitigation || '');
+        $('#fContingencyPlan').val(prefill.contingencyPlan || '');
+        renderRelPanes(prefill.relatedObjects || []);
+        $('#editModal [data-rtab="program"]').click();
+        $('#modalTitle').text(prefill.id ? '编辑风险 #' + prefill.id : '登记风险');
+        new bootstrap.Modal('#editModal').show();
+      }
+      function scaleOptions(min, max, selected) {
+        let html = '<option value="">请选择</option>';
+        for (let i = min; i <= max; i++) {
+          html += '<option value="' + i + '"' + (String(selected) === String(i) ? ' selected' : '') + '>' + i + '</option>';
+        }
+        return html;
+      }
+
+      $('#newBtn').on('click', function () { openEdit(null); });
+
+      $('#tbody').on('click', '.a-edit', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/risks/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const r = resp.data || {};
+          if (r.status === 'closed') { alert('closed 为终态只读，不可编辑'); return; }
+          openEdit(r);
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const body = {
+          riskName: $('#fRiskName').val().trim(),
+          category: $('#fCategory').val(),
+          probability: $('#fProbability').val() === '' ? null : Number($('#fProbability').val()),
+          impact: $('#fImpact').val() === '' ? null : Number($('#fImpact').val()),
+          description: $('#fDescription').val(),
+          mitigation: $('#fMitigation').val(),
+          contingencyPlan: $('#fContingencyPlan').val(),
+          owner: $('#fOwner').val().trim(),
+          relatedObjects: collectRelated(),
+          reviewDate: $('#fReviewDate').val() || null
+        };
+        // 前端先拦（后端 400 兜底）：必填 + P/I 走下拉天然限定 1~5 整数
+        if (!body.riskName) { alert('风险名不能为空'); return; }
+        if (!body.category) { alert('请选择类别'); return; }
+        if (!body.owner) { alert('owner 不能为空'); return; }
+        if (body.probability == null || body.impact == null) { alert('请选择概率与影响（1~5）'); return; }
+        const $btn = $(this).prop('disabled', true);
+        const req = id ? API.bizPut('/api/v1/risks/' + id, body) : API.bizPost('/api/v1/risks', body);
+        req.done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadList();
+          } else { alert(rmsg(resp, '保存失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '保存失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 状态流转（R6）----
+      $('#tbody').on('click', '.a-transit', function () {
+        const id = $(this).data('id');
+        const st = $(this).data('status');
+        const opts = TRANSITS[st] || [];
+        if (!opts.length) { alert('closed 为终态，不可流转'); return; }
+        $('#tId').val(id);
+        $('#tTarget').html(opts.map(function (t) {
+          return '<option value="' + escAttr(t.to) + '">' + escHtml(t.label) + '</option>';
+        }).join(''));
+        $('#tNote').val('');
+        $('#transitTitle').text('状态流转（当前：' + DICT.text('riskStatus', st) + '）');
+        syncTransitFields();
+        new bootstrap.Modal('#transitModal').show();
+      });
+      function syncTransitFields() {
+        $('#tNoteWrap').toggleClass('d-none', $('#tTarget').val() !== 'closed');
+      }
+      $('#tTarget').on('change', syncTransitFields);
+
+      $('#transitBtn').on('click', function () {
+        const id = $('#tId').val();
+        const target = $('#tTarget').val();
+        if (!target) { alert('请选择目标状态'); return; }
+        const body = { target: target };
+        if (target === 'closed') {
+          const note = $('#tNote').val().trim();
+          if (!note) { alert('关闭风险必填处置说明'); return; }
+          body.resolutionNote = note;
+        }
+        const $btn = $(this).prop('disabled', true);
+        API.bizPost('/api/v1/risks/' + id + '/transit', body).done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('transitModal')).hide();
+            loadList();
+          } else { alert(rmsg(resp, '流转失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '流转失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 删除（R5 逻辑删）----
+      $('#tbody').on('click', '.a-del', function () {
+        const id = $(this).data('id');
+        if (!confirm('确认删除该风险？删除后列表不可见、审计留痕。')) return;
+        API.bizDelete('/api/v1/risks/' + id).done(function (resp) {
+          if (ok(resp)) loadList();
+          else { alert(rmsg(resp, '删除失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '删除失败')); });
+      });
+
+      // ---- 看板（R7：cells 恰 25 格 + levelDistribution + highRisks，均排除 closed）----
+      function loadBoard() {
+        $('#distCards').html('<span class="text-muted">加载中...</span>');
+        $('#highTbody').html('<tr class="empty-row"><td colspan="8">加载中...</td></tr>');
+        $('#heatGrid').html('');
+        API.bizGet('/api/v1/risks/dashboard').done(function (resp) {
+          if (!ok(resp)) {
+            $('#distCards').html('<span class="text-danger">' + escHtml(rmsg(resp, '看板加载失败')) + '</span>');
+            $('#highTbody').html('<tr class="empty-row"><td colspan="8">' + escHtml(rmsg(resp, '加载失败')) + '</td></tr>');
+            return;
+          }
+          const d = resp.data || {};
+          renderDist(d.levelDistribution || {});
+          renderHeat(d.cells || []);
+          renderHigh(d.highRisks || []);
+          boardLoaded = true;
+        }).fail(function (xhr) {
+          $('#distCards').html('<span class="text-danger">' + escHtml(xhrMsg(xhr, '看板加载失败')) + '</span>');
+        });
+      }
+
+      function renderDist(dist) {
+        $('#distCards').html(['low', 'medium', 'high', 'critical'].map(function (k) {
+          return '<div class="dist-card">' + DICT.badge('riskLevel', k) + '<div class="num">' + (dist[k] != null ? dist[k] : 0) + '</div></div>';
+        }).join(''));
+      }
+
+      function renderHeat(cells) {
+        const map = {};
+        cells.forEach(function (c) { map[c.probability + '-' + c.impact] = c; });
+        let html = '<div class="heat-axis"><small>概率\\影响</small></div>';
+        for (let i = 1; i <= 5; i++) html += '<div class="heat-axis">I' + i + '</div>';
+        // Y 轴 P5 顶部 → P1 底部（高风险居上）；X 轴 I1→I5 写死（AC-F1.12 轴定义）
+        for (let p = 5; p >= 1; p--) {
+          html += '<div class="heat-axis">P' + p + '</div>';
+          for (let i = 1; i <= 5; i++) {
+            const c = map[p + '-' + i];
+            const count = c ? (c.count || 0) : 0;
+            const heatCls = count > 0 ? (' ' + heatClsOf(c.riskLevel)) : '';
+            html += '<div class="heat-cell' + (count > 0 ? ' has-count' + heatCls : ' zero') + '"'
+              + ' data-p="' + p + '" data-i="' + i + '" data-level="' + escAttr(c ? (c.riskLevel || '') : '') + '"'
+              + ' title="P' + p + ' × I' + i + ' = ' + escHtml(c ? c.riskValue : p * i) + '（' + escAttr(DICT.text('riskLevel', c ? c.riskLevel : levelOf(p * i))) + '）· ' + count + ' 条">'
+              + escHtml(count) + '</div>';
+          }
+        }
+        $('#heatGrid').html(html);
+      }
+      function heatClsOf(level) {
+        const e = DICT.data.riskLevel && DICT.data.riskLevel[level];
+        return e && e.heat ? e.heat : '';
+      }
+      function levelOf(v) {
+        if (v >= 20) return 'critical';
+        if (v >= 13) return 'high';
+        if (v >= 7) return 'medium';
+        return 'low';
+      }
+
+      function renderHigh(list) {
+        if (!list.length) {
+          $('#highTbody').html('<tr class="empty-row"><td colspan="8">暂无高/极高风险</td></tr>');
+          return;
+        }
+        $('#highTbody').html(list.map(function (r) {
+          return '<tr>'
+            + '<td><strong>' + escHtml(r.riskName || '') + '</strong></td>'
+            + '<td>' + escHtml(r.probability) + '</td>'
+            + '<td>' + escHtml(r.impact) + '</td>'
+            + '<td>' + escHtml(r.riskValue) + '</td>'
+            + '<td>' + DICT.badge('riskLevel', r.riskLevel) + '</td>'
+            + '<td>' + escHtml(r.owner || '-') + '</td>'
+            + '<td>' + DICT.badge('riskStatus', r.status) + '</td>'
+            + '<td>' + reviewCell(r) + '</td>'
+            + '</tr>';
+        }).join(''));
+      }
+
+      // 热力图格点击 → 下钻清单 tab（契约 R1 无 P/I 入参，按该格等级过滤——服务端支持的最细粒度）
+      $('#heatGrid').on('click', '.heat-cell.has-count', function () {
+        const level = $(this).data('level');
+        if (!level) return;
+        switchTab('list');
+        state.level = level;
+        state.page = 1;
+        $('#levelFilter').val(level);
+        loadList();
+      });
+
+      $('#boardRefreshBtn').on('click', loadBoard);
+
+      // ---- Tab 切换 ----
+      function switchTab(name) {
+        $('[data-tab]').removeClass('active');
+        $('[data-tab="' + name + '"]').addClass('active');
+        $('.tab-pane').removeClass('show active');
+        $('#pane-' + name).addClass('show active');
+        if (name === 'board' && !boardLoaded) loadBoard();
+      }
+      $(document).on('click', '[data-tab]', function (e) { e.preventDefault(); switchTab($(this).data('tab')); });
+
+      // ---- 筛选事件 ----
+      $('#categoryFilter').on('change', function () { state.category = $(this).val(); state.page = 1; loadList(); });
+      $('#levelFilter').on('change', function () { state.level = $(this).val(); state.page = 1; loadList(); });
+      $('#statusFilter').on('change', function () { state.status = $(this).val(); state.page = 1; loadList(); });
+      $('#overdueOnly').on('change', function () { state.overdueOnly = $(this).prop('checked'); state.page = 1; loadList(); });
+      $('#searchBtn').on('click', function () { state.keyword = $('#keywordInput').val().trim(); state.page = 1; loadList(); });
+      $('#keywordInput').on('keydown', function (e) { if (e.key === 'Enter') $('#searchBtn').click(); });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+
+      // ---- 工具 ----
+      function escHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function escAttr(s) { return escHtml(s); }
+
+      // ---- 初始化：筛选下拉（字典统一生成）+ 权限 + 选择器就绪后拉列表 ----
+      $('#categoryFilter').html(DICT.options('riskCategory', '', '全部'));
+      $('#levelFilter').html(DICT.options('riskLevel', '', '全部'));
+      $('#statusFilter').html(DICT.options('riskStatus', '', '全部'));
+      $.when(loadPerm(), loadSelectors()).always(function () { loadList(); });
+    });
+  </script>
+</body>
+</html>

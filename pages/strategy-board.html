@@ -67,6 +67,12 @@
       <div class="row g-3" id="progCards"><div class="text-muted">暂无关联项目群</div></div>
     </div>
 
+    <!-- T16（QA D-QA1 修复）：关联商业案例只读区（AC-F2.8 反向侧） -->
+    <div class="section d-none" id="bizcaseSection">
+      <h6>关联商业案例（只读，去"投资决策"维护）</h6>
+      <div class="row g-3" id="bizcaseCards"><div class="text-muted">加载中...</div></div>
+    </div>
+
     <div class="section" id="loadingSection">
       <div class="text-center text-muted py-4">加载中...</div>
     </div>
@@ -169,10 +175,40 @@
               + '</div></div>';
           }).join(''));
         }
+        // T16（QA D-QA1 修复）：关联商业案例只读区——B1 strategyId 筛选，只读卡片
+        loadBizcases(id);
+
       }
 
+      // T16：B1 GET /api/v1/business-cases?strategyId= 分页拉取（每战略关联量小，size=50 足够）
+      function loadBizcases(strategyId) {
+        var BC_ST = { draft: 'secondary', approved: 'success', rejected: 'danger', executing: 'primary', done: 'dark' };
+        API.bizGet('/api/v1/business-cases?strategyId=' + encodeURIComponent(strategyId) + '&page=1&pageSize=50').done(function (resp) {
+          var list = (resp && resp.data && resp.data.records) || [];
+          $('#bizcaseSection').removeClass('d-none');
+          if (!list.length) {
+            $('#bizcaseCards').html('<div class="text-muted">暂无关联商业案例，可在"投资决策"页创建时关联本战略</div>');
+            return;
+          }
+          $('#bizcaseCards').html(list.map(function (b) {
+            var st = b.status || 'draft';
+            var roi = (b.roiPercent == null || b.roiPercent === '') ? 'N/A' : b.roiPercent + '%';
+            var rice = (b.riceScore == null || b.riceScore === '') ? '-' : b.riceScore;
+            return '<div class="col-md-4 col-6"><div class="program-card">'
+              + '<div class="d-flex align-items-center"><strong>' + escapeHtml(b.caseName || ('案例 #' + b.id)) + '</strong>'
+              + '<span class="status-badge ms-auto badge bg-' + (BC_ST[st] || 'secondary') + '">' + escapeHtml(st) + '</span></div>'
+              + '<div style="font-size:12px;color:#666;margin-top:6px;">ROI(3y) <strong class="' + (String(roi).indexOf('-') === 0 ? 'text-danger' : 'text-success') + '">' + escapeHtml(String(roi)) + '</strong>'
+              + ' · RICE ' + escapeHtml(String(rice))
+              + ' · 回收 ' + escapeHtml(b.paybackYears == null ? 'N/A' : (b.paybackYears + 'y')) + '</div>'
+              + '</div></div>';
+          }).join(''));
+        }).fail(function () {
+          $('#bizcaseSection').removeClass('d-none');
+          $('#bizcaseCards').html('<div class="text-muted">关联商业案例加载失败（无权限或服务不可用）</div>');
+        });
+      }
       $('#progCards').on('click', '.program-card', function () {
-        const pid = $(this).data('id');
+        var pid = $(this).data('id');
         goPage('program-detail-' + pid, '项目群详情', 'pages/program-detail.html?id=' + pid);
       });
       $('#backBtn').on('click', function () { goPage('strategy-list', '战略管理', 'pages/strategy-list.html'); });

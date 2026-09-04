@@ -22,7 +22,13 @@
     { key: 'standard-list', title: '工程标准', page: 'pages/standard-list.html' },
     { key: 'template-list', title: '模板库', page: 'pages/template-list.html' },
     { key: 'asset-list', title: '数据资产', page: 'pages/asset-list.html' },
-    { key: 'quality-rule-list', title: '质量规则', page: 'pages/quality-rule-list.html' }
+    { key: 'quality-rule-list', title: '质量规则', page: 'pages/quality-rule-list.html' },
+    // case-20260821 L3收口（T9）：GRC 风险合规 + 战略投资决策三域同为租户级知识资产，不限层、
+    // 全角色可见（engineer/executive/PM 只读或按矩阵受限——写/审批按钮页内按角色隐藏、后端 403 兜底）；
+    // 三域前缀不注册 LayerGuard，任何层开关组合下完整可用；不挂 layerHidden（AC-SWITCH.1 菜单不隐藏）
+    { key: 'risk-board', title: '风险合规', page: 'pages/risk-board.html' },
+    { key: 'compliance-check-list', title: '合规检查', page: 'pages/compliance-check-list.html' },
+    { key: 'business-case-list', title: '投资决策', page: 'pages/business-case-list.html' }
   ];
 
   const ROLE_MENUS = {

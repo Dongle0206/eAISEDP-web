@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>合规检查 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .sec-title { font-weight:700; font-size:13px; color:#1677ff; margin-bottom:2px; }
+    .sec-body { font-size:13px; color:#333; background:#fafafa; border-radius:6px; padding:8px 12px; margin-bottom:10px; white-space:pre-wrap; }
+    .overdue-flag { color:#f5222d; font-weight:700; }
+    .ov-badge { display:inline-block; background:#fff1f0; color:#f5222d; border:1px solid #ffa39e; border-radius:10px; padding:0 6px; font-size:11px; margin-left:4px; }
+    .fw-chip { display:inline-block; background:#f9f0ff; color:#722ed1; border-radius:9px; padding:1px 8px; font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">合规检查台账</h5>
+      <span class="text-muted" style="font-size:13px;">手动登记制；结果覆盖式更新（历史留痕走审计）；不限分层</span>
+      <div class="spacer"></div>
+      <label class="mb-0 d-flex align-items-center" style="gap:4px;">
+        <span class="text-muted">框架：</span>
+        <select id="frameworkFilter" class="form-select form-select-sm" style="width:auto;"></select>
+      </label>
+      <label class="mb-0 d-flex align-items-center" style="gap:4px;">
+        <span class="text-muted">结果：</span>
+        <select id="resultFilter" class="form-select form-select-sm" style="width:auto;"></select>
+      </label>
+      <label class="mb-0 d-flex align-items-center" style="gap:4px; font-size:13px;">
+        <input type="checkbox" id="overdueOnly" class="form-check-input mt-0"> <span class="text-muted">仅看逾期</span>
+      </label>
+      <input id="keywordInput" class="form-control form-control-sm" style="width:170px;" placeholder="检查项关键字">
+      <button id="searchBtn" class="btn btn-outline-secondary btn-sm">搜索</button>
+      <button id="newBtn" class="btn btn-primary btn-sm gov-write" style="display:none;">+ 登记检查项</button>
+    </div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>检查项</th>
+            <th style="width:150px;">框架</th>
+            <th style="width:120px;">条款引用</th>
+            <th style="width:90px;">结果</th>
+            <th style="width:110px;">检查日期</th>
+            <th style="width:130px;">复检日期</th>
+            <th style="width:90px;">owner</th>
+            <th style="width:170px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="empty-row"><td colspan="8">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pager">
+      <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+      <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+      <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+      <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="10">10/页</option>
+        <option value="20">20/页</option>
+        <option value="50">50/页</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 详情弹窗 -->
+  <div class="modal fade" id="viewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="viewTitle">检查项详情</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="viewBody"></div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">关闭</button></div>
+    </div></div>
+  </div>
+
+  <!-- 新建/编辑弹窗 -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">登记检查项</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="row">
+          <div class="col-7 mb-2"><label class="form-label small">检查项 <span class="text-danger">*</span></label><input id="fCheckName" class="form-control form-control-sm" maxlength="200"></div>
+          <div class="col-5 mb-2"><label class="form-label small">框架 <span class="text-danger">*</span></label><select id="fFramework" class="form-select form-select-sm"></select></div>
+        </div>
+        <div class="row">
+          <div class="col-5 mb-2 d-none" id="fFrameworkNameWrap"><label class="form-label small">自定义框架名 <span class="text-danger">*</span></label>
+            <input id="fFrameworkName" class="form-control form-control-sm" maxlength="200" placeholder="如：内部安全规范"></div>
+          <div class="col-4 mb-2"><label class="form-label small">条款引用</label><input id="fClauseRef" class="form-control form-control-sm" maxlength="128" placeholder="如 ISO27001 A.9.4.1"></div>
+          <div class="col-3 mb-2"><label class="form-label small">结果 <span class="text-danger">*</span></label><select id="fResult" class="form-select form-select-sm"></select></div>
+        </div>
+        <div class="row">
+          <div class="col-4 mb-2"><label class="form-label small">检查日期 <span class="text-muted">（留空默认当天）</span></label><input type="date" id="fCheckDate" class="form-control form-control-sm"></div>
+          <div class="col-4 mb-2"><label class="form-label small">复检日期</label><input type="date" id="fRecheckDate" class="form-control form-control-sm"></div>
+          <div class="col-4 mb-2"><label class="form-label small">owner</label><input id="fOwner" class="form-control form-control-sm" maxlength="64"></div>
+        </div>
+        <div class="mb-2"><label class="form-label small">检查描述</label><textarea id="fDescription" class="form-control form-control-sm" rows="2"></textarea></div>
+        <div class="mb-2"><label class="form-label small">证据说明 <span class="text-muted">（≤1000 字）</span></label><textarea id="fEvidenceNote" class="form-control form-control-sm" rows="2" maxlength="1000"></textarea></div>
+        <div class="text-muted" style="font-size:12px;">结果为覆盖式单值当前态（修改后旧值仅存审计记录）；框架=自定义 时必须填自定义框架名，其余框架不可带名（防脏数据）。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/governance-dict.js"></script>
+  <script src="../assets/js/sanitize.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      const DICT = window.GOV_DICT;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const state = { page: 1, size: 10, framework: '', result: '', overdueOnly: false, keyword: '', total: 0 };
+      const perm = { write: false }; // compliance:create/edit 仅 platform_admin/tenant_admin（PM 只读——防自查自登，PRD §4.6）
+
+      // ---- 响应工具：兼容 code=0 与 code=200 ----
+      function ok(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
+      function xhrMsg(xhr, d) { return (xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || d || ('请求失败（' + xhr.status + '）'); }
+
+      // ---- 写权限（gov-write 先例：PA/TA 可写；后端 403 兜底）----
+      function loadPerm() {
+        const d = $.Deferred();
+        API.current().done(function (resp) {
+          if (!ok(resp)) { d.resolve(); return; }
+          const roles = ((resp.data || {}).roleCodes) || [];
+          perm.write = roles.indexOf('platform_admin') !== -1 || roles.indexOf('tenant_admin') !== -1;
+          if (perm.write) $('#newBtn').show();
+          d.resolve();
+        }).fail(function () { d.resolve(); /* 保持隐藏，后端 403 兜底 */ });
+        return d.promise();
+      }
+
+      // ---- 列表（C1：默认 id DESC）----
+      function loadList() {
+        $('#tbody').html('<tr class="empty-row"><td colspan="8">加载中...</td></tr>');
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.framework) params.set('framework', state.framework);
+        if (state.result) params.set('result', state.result);
+        if (state.overdueOnly) params.set('overdueOnly', '1');
+        if (state.keyword) params.set('keyword', state.keyword);
+        API.bizGet('/api/v1/compliance-checks?' + params.toString()).done(function (resp) {
+          if (!ok(resp)) {
+            $('#tbody').html('<tr class="empty-row"><td colspan="8">' + escHtml(rmsg(resp, '加载失败')) + '</td></tr>');
+            $('#pageInfo').html('');
+            return;
+          }
+          const data = resp.data || {};
+          const list = data.records || data.list || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="8">' + escHtml(xhrMsg(xhr, '加载失败')) + '</td></tr>');
+        });
+      }
+
+      function frameworkCell(c) {
+        const fw = c.framework || '';
+        if (fw === 'custom') {
+          return '<span class="fw-chip">自定义' + (c.frameworkName ? '：' + escHtml(c.frameworkName) : '') + '</span>';
+        }
+        return escHtml(DICT.text('complianceFramework', fw));
+      }
+      function recheckCell(c) {
+        if (!c.recheckDate) return '<span class="text-muted">-</span>';
+        // overdue 由服务端统一判定（na 不豁免——AC-F1.11），前端红标直消费 VO 字段（D-10）
+        return '<span' + (c.overdue ? ' class="overdue-flag"' : '') + '>' + escHtml(c.recheckDate) + '</span>'
+          + (c.overdue ? '<span class="ov-badge">已逾期</span>' : '');
+      }
+
+      function renderTable(list) {
+        if (!list.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="8">暂无检查项，点击右上角"登记检查项"创建</td></tr>');
+          return;
+        }
+        $('#tbody').html(list.map(function (c) {
+          const btns = ['<button class="btn btn-sm btn-outline-primary a-view" data-id="' + c.id + '">详情</button>'];
+          if (perm.write) {
+            btns.push('<button class="btn btn-sm btn-outline-secondary a-edit" data-id="' + c.id + '">编辑</button>');
+            btns.push('<button class="btn btn-sm btn-outline-danger a-del" data-id="' + c.id + '">删除</button>');
+          }
+          return '<tr>'
+            + '<td><strong>' + escHtml(c.checkName || '') + '</strong></td>'
+            + '<td>' + frameworkCell(c) + '</td>'
+            + '<td>' + escHtml(c.clauseRef || '-') + '</td>'
+            + '<td>' + DICT.badge('complianceResult', c.result) + '</td>'
+            + '<td>' + escHtml(c.checkDate || '-') + '</td>'
+            + '<td>' + recheckCell(c) + '</td>'
+            + '<td>' + escHtml(c.owner || '-') + '</td>'
+            + '<td style="white-space:nowrap;">' + btns.join(' ') + '</td>'
+            + '</tr>';
+        }).join(''));
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + state.page + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', state.page <= 1);
+        $('#nextBtn').prop('disabled', state.page >= totalPages);
+      }
+
+      // ---- 详情（C3）----
+      $('#tbody').on('click', '.a-view', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/compliance-checks/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const c = resp.data || {};
+          $('#viewTitle').html('<strong>' + escHtml(c.checkName || '') + '</strong> ' + DICT.badge('complianceResult', c.result));
+          const html =
+            '<div class="row mb-2" style="font-size:13px;">'
+            + '<div class="col-4">框架：' + frameworkCell(c) + '</div>'
+            + '<div class="col-4">条款引用：' + escHtml(c.clauseRef || '-') + '</div>'
+            + '<div class="col-4">owner：' + escHtml(c.owner || '-') + '</div>'
+            + '<div class="col-4">检查日期：' + escHtml(c.checkDate || '-') + '</div>'
+            + '<div class="col-5">复检日期：' + recheckCell(c) + '</div>'
+            + '<div class="col-3">创建人：' + escHtml(c.createBy || '-') + '</div>'
+            + '</div>'
+            + '<div class="sec-title">检查描述</div><div class="sec-body">' + escHtml(c.description || '（未填写）') + '</div>'
+            + '<div class="sec-title">证据说明</div><div class="sec-body">' + escHtml(c.evidenceNote || '（未填写）') + '</div>';
+          // 字段级转义后再过公共 DOM 清洗（sanitize.js）注入 innerHTML——防漏转义的纵深防御
+          $('#viewBody').html(typeof window.sanitizeHtml === 'function' ? window.sanitizeHtml(html) : html);
+          new bootstrap.Modal('#viewModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      // ---- 新建 / 编辑（C2/C4；custom 联动：custom 才显示且必填自定义名，非 custom 提交 null）----
+      function openEdit(prefill) {
+        prefill = prefill || {};
+        $('#fId').val(prefill.id || '');
+        $('#fCheckName').val(prefill.checkName || '');
+        $('#fFramework').html(DICT.options('complianceFramework', prefill.framework, '请选择'));
+        $('#fFrameworkName').val(prefill.frameworkName || '');
+        $('#fClauseRef').val(prefill.clauseRef || '');
+        $('#fResult').html(DICT.options('complianceResult', prefill.result, '请选择'));
+        $('#fCheckDate').val(prefill.checkDate || '');
+        $('#fRecheckDate').val(prefill.recheckDate || '');
+        $('#fOwner').val(prefill.owner || '');
+        $('#fDescription').val(prefill.description || '');
+        $('#fEvidenceNote').val(prefill.evidenceNote || '');
+        syncFrameworkName();
+        $('#modalTitle').text(prefill.id ? '编辑检查项 #' + prefill.id : '登记检查项');
+        new bootstrap.Modal('#editModal').show();
+      }
+      function syncFrameworkName() {
+        $('#fFrameworkNameWrap').toggleClass('d-none', $('#fFramework').val() !== 'custom');
+      }
+      $('#fFramework').on('change', syncFrameworkName);
+
+      $('#newBtn').on('click', function () { openEdit(null); });
+
+      $('#tbody').on('click', '.a-edit', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/compliance-checks/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          openEdit(resp.data || {});
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const fw = $('#fFramework').val();
+        const fwName = $('#fFrameworkName').val().trim();
+        // 前端先拦 custom 联动四例（后端 400 兜底——AC-F1.9）
+        if (fw === 'custom' && !fwName) { alert('框架为自定义时必须填写自定义框架名'); return; }
+        if (fw !== 'custom' && fwName) { alert('非自定义框架不可带自定义框架名'); return; }
+        const body = {
+          checkName: $('#fCheckName').val().trim(),
+          framework: fw,
+          frameworkName: fw === 'custom' ? fwName : null, // 非 custom 一律提交 null（防脏数据）
+          clauseRef: $('#fClauseRef').val().trim() || null,
+          description: $('#fDescription').val(),
+          result: $('#fResult').val(),
+          evidenceNote: $('#fEvidenceNote').val(),
+          checkDate: $('#fCheckDate').val() || null,
+          recheckDate: $('#fRecheckDate').val() || null,
+          owner: $('#fOwner').val().trim() || null
+        };
+        if (!body.checkName) { alert('检查项不能为空'); return; }
+        if (!body.framework) { alert('请选择框架'); return; }
+        if (!body.result) { alert('请选择结果'); return; }
+        const $btn = $(this).prop('disabled', true);
+        const req = id ? API.bizPut('/api/v1/compliance-checks/' + id, body) : API.bizPost('/api/v1/compliance-checks', body);
+        req.done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadList();
+          } else { alert(rmsg(resp, '保存失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '保存失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 删除（C5 逻辑删）----
+      $('#tbody').on('click', '.a-del', function () {
+        const id = $(this).data('id');
+        if (!confirm('确认删除该检查项？删除后列表不可见、审计留痕。')) return;
+        API.bizDelete('/api/v1/compliance-checks/' + id).done(function (resp) {
+          if (ok(resp)) loadList();
+          else { alert(rmsg(resp, '删除失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '删除失败')); });
+      });
+
+      // ---- 事件绑定 ----
+      $('#frameworkFilter').on('change', function () { state.framework = $(this).val(); state.page = 1; loadList(); });
+      $('#resultFilter').on('change', function () { state.result = $(this).val(); state.page = 1; loadList(); });
+      $('#overdueOnly').on('change', function () { state.overdueOnly = $(this).prop('checked'); state.page = 1; loadList(); });
+      $('#searchBtn').on('click', function () { state.keyword = $('#keywordInput').val().trim(); state.page = 1; loadList(); });
+      $('#keywordInput').on('keydown', function (e) { if (e.key === 'Enter') $('#searchBtn').click(); });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+
+      // ---- 工具 ----
+      function escHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+
+      // ---- 初始化：筛选下拉（字典统一生成）+ 权限就绪后拉列表 ----
+      $('#frameworkFilter').html(DICT.options('complianceFramework', '', '全部'));
+      $('#resultFilter').html(DICT.options('complianceResult', '', '全部'));
+      loadPerm().always(function () { loadList(); });
+    });
+  </script>
+</body>
+</html>
