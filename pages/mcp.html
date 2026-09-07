@@ -6,37 +6,147 @@
   <title>MCP 工具 - eAISEDP</title>
   <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
   <link rel="stylesheet" href="../assets/css/app.css">
-  <style>body{background:#f0f2f5;}.page-wrap{padding:20px;}.section{background:#fff;border-radius:6px;padding:16px 20px;margin-bottom:16px;}pre{background:#1e1e1e;color:#d4d4d4;padding:12px;border-radius:6px;font-size:12px;}</style>
+  <style>
+    body{background:#f0f2f5;}.page-wrap{padding:20px;}.section{background:#fff;border-radius:6px;padding:16px 20px;margin-bottom:16px;}
+    pre{background:#1e1e1e;color:#d4d4d4;padding:12px;border-radius:6px;font-size:12px;white-space:pre-wrap;word-break:break-all;}
+    .tool-card{cursor:pointer;border:1px solid #dee2e6;border-radius:6px;padding:12px;margin-bottom:8px;}
+    .tool-card:hover{border-color:#0d6efd;background:#f8faff;}
+    .tool-card.active{border-color:#0d6efd;box-shadow:0 0 0 2px rgba(13,110,253,.15);}
+    .param-chip{display:inline-block;font-size:12px;background:#eef2f7;border-radius:4px;padding:1px 6px;margin:2px 4px 0 0;color:#495057;}
+    .param-chip.req{background:#fff0f0;color:#c0392b;}
+    details.raw-envelope summary{cursor:pointer;color:#6c757d;font-size:13px;}
+  </style>
 </head>
 <body>
   <div class="page-wrap">
     <div class="section">
       <h5 class="mb-0">MCP 工具</h5>
-      <p class="text-muted small mb-0">Model Context Protocol——外部工具标准协议对接。未配置 MCP Server 时显示降级提示（需 eaiselp.adapter.mcp.enabled=true）。</p>
+      <p class="text-muted small mb-0">Model Context Protocol——外部工具标准协议对接。选择工具按 schema 填参试调用，全链路走真实 MCP 通道语义（provider=mock 时为内置三源模拟，响应携带 __mock 标识）。</p>
     </div>
     <div class="section"><div id="toolList"><div class="text-center text-muted py-4"><div class="spinner-border text-primary"></div></div></div></div>
+    <div class="section d-none" id="invokePanel">
+      <h6>试调用：<span id="invokeToolName"></span></h6>
+      <p class="text-muted small" id="invokeToolDesc"></p>
+      <form id="invokeForm" onsubmit="return false;"></form>
+      <button class="btn btn-primary btn-sm mt-2" id="invokeSubmit">调用</button>
+      <div id="invokeResultArea" class="mt-3 d-none">
+        <div id="invokeBanner" class="alert py-2 small mb-2"></div>
+        <h6 class="small text-muted">工具结果（转义 JSON）</h6>
+        <pre id="invokeOutput"></pre>
+        <details class="raw-envelope" id="rawEnvelope">
+          <summary>查看 JSON-RPC 原始报文（调试用，默认收起）</summary>
+          <div class="mt-2"><div class="small text-muted">→ 请求（tools/call）</div><pre id="rawReq"></pre></div>
+          <div class="mt-2"><div class="small text-muted">← 响应</div><pre id="rawResp"></pre></div>
+        </details>
+      </div>
+    </div>
   </div>
   <script src="../assets/js/jquery-3.7.1.min.js"></script>
   <script src="../config.js"></script>
   <script src="../assets/js/api.js"></script>
   <script>
     $(function(){const API=window.EAISELP_API,CFG=window.EAISELP_CONFIG;if(!API.getToken()){location.href='../'+CFG.LOGIN_PAGE;return;}
+    // 分组展示顺序与展示名（未知前缀按字母序追加在末尾；仅展示层配置，非业务分支）
+    var GROUP_ORDER=['jira','confluence','gitlab'];
+    var GROUP_LABEL={jira:'Jira',confluence:'Confluence',gitlab:'GitLab'};
+    var allTools=[];var currentTool=null;var rpcSeq=0;
+
     $.ajax({url:CFG.API_BASE_URL+'/api/v1/mcp/tools',method:'GET',headers:{'Authorization':'Bearer '+API.getToken()},dataType:'json'}).done(function(r){
     if(r.code!==0){$('#toolList').html('<div class="text-danger py-3">'+esc(r.msg||'加载失败')+'</div>');return;}
     var d=r.data||{};
-    if(!d.enabled){$('#toolList').html('<div class="text-center py-4"><div style="font-size:40px;">🔌</div><div class="text-muted">MCP 未配置</div><div class="text-muted small mt-2">'+esc(d.message||'')+'</div><div class="text-muted small">启动 runtime 时设置: set MCP_ENABLED=true &amp;&amp; set MCP_SERVER_URL=http://your-mcp:3001/mcp</div></div>');return;}
-    var tools=d.tools||[];
-    if(!tools.length){$('#toolList').html('<div class="text-center text-muted py-4">已连接但无可用工具</div>');return;}
-    var html='<div class="mb-2 small text-muted">Provider: '+esc(d.provider)+' | '+tools.length+' 个工具</div>';
-    tools.forEach(function(t){html+='<div class="border rounded p-3 mb-2"><div class="d-flex justify-content-between"><div><strong>'+esc(t.name)+'</strong></div><button class="btn btn-outline-primary btn-sm mcp-invoke" data-name="'+esc(t.name)+'">调用</button></div><div class="small text-muted mt-1">'+esc(t.description||'')+'</div></div>';});
-    html+='<div id="invokeResult" class="mt-3 d-none"><h6>调用结果</h6><pre id="invokeOutput"></pre></div>';
+    if(!d.enabled){$('#toolList').html('<div class="text-center py-4"><div style="font-size:40px;">🔌</div><div class="text-muted">MCP 未配置</div><div class="text-muted small mt-2">'+esc(d.message||'')+'</div><div class="text-muted small">启动 runtime 时设置: set MCP_ENABLED=true（provider 默认 mock，无需外部 server；对接真实 server 再配 MCP_PROVIDER=http + MCP_SERVER_URL）</div></div>');return;}
+    allTools=d.tools||[];
+    if(!allTools.length){$('#toolList').html('<div class="text-center text-muted py-4">已连接但无可用工具</div>');return;}
+    var html='<div class="mb-2 small text-muted">Provider: '+esc(d.provider)+(d.provider==='mock'?'（模拟数据，响应含 __mock 标识）':'')+' | '+allTools.length+' 个工具</div>';
+    // 按工具名前缀（源）分组：namespace.tool → namespace
+    var groups={};
+    allTools.forEach(function(t){var src=String(t.name||'').split('.')[0]||'other';(groups[src]=groups[src]||[]).push(t);});
+    var ordered=GROUP_ORDER.filter(function(g){return groups[g];}).concat(Object.keys(groups).filter(function(g){return GROUP_ORDER.indexOf(g)<0;}).sort());
+    ordered.forEach(function(src){
+      html+='<div class="mb-3"><div class="d-flex align-items-center mb-1"><span class="badge bg-secondary">'+esc(GROUP_LABEL[src]||src)+'</span><span class="text-muted small ms-2">'+groups[src].length+' 个工具</span></div>';
+      groups[src].forEach(function(t){html+=toolCard(t);});
+      html+='</div>';});
     $('#toolList').html(html);}).fail(function(){$('#toolList').html('<div class="text-danger py-3">请求失败</div>');});
-    $('#toolList').on('click','.mcp-invoke',function(){var name=$(this).data('name');
-    var paramsStr=prompt('输入调用参数 JSON（可为空）:','{}');
-    var params={};try{params=paramsStr?JSON.parse(paramsStr):{};}catch(e){alert('JSON 格式错误');return;}
-    API.bizPost('/api/v1/mcp/invoke',JSON.stringify({name:name,params:params})).done(function(r){
-    $('#invokeResult').removeClass('d-none');
-    $('#invokeOutput').text(JSON.stringify(r,null,2));});});
+
+    function toolCard(t){
+      var props=(t.schema&&t.schema.properties)||{};var req=(t.schema&&t.schema.required)||[];
+      var chips=Object.keys(props).map(function(k){
+        var isReq=req.indexOf(k)>=0;
+        return '<span class="param-chip'+(isReq?' req':'')+'">'+esc(k)+(isReq?' *':'')+'</span>';}).join('');
+      return '<div class="tool-card" data-name="'+esc(t.name)+'">'+
+        '<div class="d-flex justify-content-between"><div><strong>'+esc(t.name)+'</strong></div><button class="btn btn-outline-primary btn-sm">试调用</button></div>'+
+        '<div class="small text-muted mt-1">'+esc(t.description||'')+'</div>'+
+        (chips?'<div class="mt-1">'+chips+'</div>':'<div class="small text-muted mt-1">无需参数</div>')+'</div>';}
+
+    $('#toolList').on('click','.tool-card',function(){
+      var name=$(this).data('name');
+      $('.tool-card').removeClass('active');$(this).addClass('active');
+      selectTool(name);});
+
+    function selectTool(name){
+      currentTool=allTools.filter(function(t){return t.name===name;})[0];if(!currentTool)return;
+      $('#invokePanel').removeClass('d-none');
+      $('#invokeToolName').text(currentTool.name);
+      $('#invokeToolDesc').text(currentTool.description||'');
+      $('#invokeResultArea').addClass('d-none');
+      $('#rawEnvelope').removeAttr('open');
+      // 按 schema 动态渲染入参表单（字段名/类型/必填标记来自 listTools 的 schema）
+      var props=(currentTool.schema&&currentTool.schema.properties)||{};var req=(currentTool.schema&&currentTool.schema.required)||[];
+      var form='';
+      Object.keys(props).forEach(function(k){
+        var p=props[k]||{};
+        form+='<div class="mb-2"><label class="form-label small mb-1" for="param-'+esc(k)+'">'+esc(k)+(req.indexOf(k)>=0?' <span class="text-danger">*</span>':'')+
+          ' <span class="text-muted">('+esc(p.type||'string')+')</span></label>'+
+          '<input class="form-control form-control-sm" id="param-'+esc(k)+'" data-param="'+esc(k)+'" data-req="'+(req.indexOf(k)>=0?'1':'0')+'" placeholder="'+esc(p.description||'')+'"></div>';});
+      $('#invokeForm').html(form||'<div class="text-muted small">该工具无需参数，直接点击"调用"。</div>');
+      $('#invokePanel')[0].scrollIntoView({behavior:'smooth'});}
+
+    $('#invokeSubmit').on('click',function(){
+      if(!currentTool)return;
+      // 客户端必填校验（服务端 AC-07 结构化校验为权威，此处仅提前拦截）
+      var params={};var missing=[];
+      $('#invokeForm [data-param]').each(function(){
+        var k=$(this).data('param');var v=($.trim($(this).val())||'');
+        if(v)params[k]=v;else if($(this).data('req')==='1')missing.push(k);});
+      if(missing.length){alert('缺少必填参数: '+missing.join(', '));return;}
+      doInvoke(currentTool.name,params);});
+
+    function doInvoke(name,params){
+      var rpcId=++rpcSeq;
+      var reqEnvelope={jsonrpc:'2.0',method:'tools/call',params:{name:name,arguments:params},id:rpcId};
+      $('#invokeResultArea').removeClass('d-none');
+      $('#rawEnvelope').removeAttr('open');
+      API.bizPost('/api/v1/mcp/invoke',JSON.stringify({name:name,params:params})).done(function(r){
+        var result,respEnvelope,ok=false,level='success',msg='';
+        if(r.code!==0){ // REST 层错误（含 30/min 限流拒绝，复用既有限流）
+          level='danger';msg=esc(r.msg||('调用失败 code='+r.code));
+          respEnvelope={jsonrpc:'2.0',id:rpcId,error:{code:(r.code||0),message:(r.msg||'')}};
+          result=null;
+        }else if(!r.data||!r.data.enabled){
+          level='warning';msg=esc((r.data&&r.data.message)||'MCP 未配置');
+          respEnvelope={jsonrpc:'2.0',id:rpcId,error:{code:-1,message:(r.data&&r.data.message)||'MCP 未配置'}};
+          result=null;
+        }else{
+          result=r.data.result;
+          var isStructuredError=result&&typeof result==='object'&&result.error;
+          if(!r.data.success){level='warning';msg='工具调用失败或返回空（详见服务端日志）';}
+          else if(isStructuredError){level='danger';msg='结构化错误 code='+esc(result.error.code)+': '+esc(result.error.message||'');}
+          else{ok=true;msg='调用成功'+((result&&result.__mock===true)?'（__mock=true，模拟数据）':'');}
+          respEnvelope=isStructuredError
+            ?{jsonrpc:'2.0',id:rpcId,error:result.error}
+            :{jsonrpc:'2.0',id:rpcId,result:result};
+        }
+        $('#invokeBanner').attr('class','alert py-2 small mb-2 alert-'+level).html(msg);
+        $('#invokeOutput').text(result===null||result===undefined?'（无结果）':JSON.stringify(result,null,2)); // .text() 纯文本渲染，注入 <script> 不执行（AC-09）
+        $('#rawReq').text(JSON.stringify(reqEnvelope,null,2));
+        $('#rawResp').text(JSON.stringify(respEnvelope,null,2));})
+      .fail(function(xhr){
+        $('#invokeResultArea').removeClass('d-none');
+        $('#invokeBanner').attr('class','alert py-2 small mb-2 alert-danger').text('请求失败（HTTP '+(xhr?xhr.status:'?')+'）');
+        $('#invokeOutput').text('（无结果）');
+        $('#rawReq').text(JSON.stringify({jsonrpc:'2.0',method:'tools/call',params:{name:name,arguments:params},id:rpcId},null,2));
+        $('#rawResp').text('（HTTP 请求失败，无响应报文）');});}
+
     function esc(s){if(s==null)return'';return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
     });
   </script>
