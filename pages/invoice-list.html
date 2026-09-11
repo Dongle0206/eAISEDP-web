@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>平台账单 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .num-cell { font-family:Consolas,monospace; }
+    .waterfall { font-size:12px; }
+    .code-chip { font-family:Consolas,monospace; font-weight:700; color:#1677ff; }
+    .sec-title { font-weight:700; font-size:13px; color:#1677ff; margin-bottom:2px; }
+    .sec-body { font-size:13px; color:#333; background:#fafafa; border-radius:6px; padding:8px 12px; margin-bottom:10px; }
+    .summary-box { background:#f6ffed; border:1px solid #b7eb8f; border-radius:6px; padding:10px 12px; font-size:13px; }
+    .fail-box { background:#fff1f0; border:1px solid #ffa39e; border-radius:6px; padding:8px 12px; font-size:13px; margin-top:8px; }
+    .proration-tag { font-size:11px; color:#d48806; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">平台账单</h5>
+      <span class="text-muted" style="font-size:13px;">跨租户月度账单：draft→issued→paid 人工标记流转（金额以后端落库为准）</span>
+      <div class="spacer"></div>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">账期：</span>
+        <input type="month" id="periodFilter" class="form-control form-control-sm" style="width:150px;">
+      </label>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">租户：</span>
+        <input type="number" min="1" id="tenantFilter" class="form-control form-control-sm" style="width:110px;" placeholder="租户ID">
+      </label>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">状态：</span>
+        <select id="statusFilter" class="form-select form-select-sm" style="width:auto;"></select>
+      </label>
+      <button id="searchBtn" class="btn btn-outline-secondary btn-sm">筛选</button>
+      <button id="genBtn" class="btn btn-primary btn-sm">补生成账单</button>
+    </div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:90px;">账期</th>
+            <th style="width:90px;">租户</th>
+            <th style="width:150px;">套餐</th>
+            <th style="width:200px;">用量摘要</th>
+            <th style="width:130px;">基础费（元）</th>
+            <th style="width:120px;">超量费（元）</th>
+            <th style="width:130px;">应缴（元）</th>
+            <th style="width:90px;">状态</th>
+            <th style="width:220px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="empty-row"><td colspan="9">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pager">
+      <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+      <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+      <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+      <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="10">10/页</option>
+        <option value="20">20/页</option>
+        <option value="50">50/页</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 账单详情弹窗（I2：detail JSON 快照渲染） -->
+  <div class="modal fade" id="viewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="viewTitle">账单详情</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="viewBody"></div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">关闭</button></div>
+    </div></div>
+  </div>
+
+  <!-- 补生成弹窗（I3） -->
+  <div class="modal fade" id="genModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">手动补生成账单</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-2"><label class="form-label small">账期（yyyy-MM）<span class="text-danger">*</span></label>
+          <input type="month" id="gPeriod" class="form-control form-control-sm"></div>
+        <div class="mb-2"><label class="form-label small">租户ID（可选，缺省=该账期全部租户）</label>
+          <input type="number" min="1" id="gTenantId" class="form-control form-control-sm" placeholder="留空=全量补生成"></div>
+        <div class="text-muted" style="font-size:12px;">与定时任务同一入口：已存在 draft 将重算覆盖（用量补记后金额更新）；issued/paid 不覆盖；试用/未绑定套餐租户自动跳过。</div>
+        <div id="gResult" class="d-none" style="margin-top:10px;">
+          <div class="summary-box" id="gSummary"></div>
+          <div class="fail-box d-none" id="gFailed"></div>
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">关闭</button><button id="gRunBtn" class="btn btn-primary btn-sm">执行补生成</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/governance-dict.js"></script>
+  <script src="../assets/js/sanitize.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      const DICT = window.GOV_DICT;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const state = { page: 1, size: 10, period: '', tenantId: '', status: '', total: 0 };
+
+      // ---- 响应工具：兼容 code=0（既有 R.ok）与 code=200（契约示例形态） ----
+      function ok(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
+      function xhrMsg(xhr, d) { return (xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || d || ('请求失败（' + xhr.status + '）'); }
+
+      // ---- 列表（I1：平台跨租户，可见 draft）----
+      function loadList() {
+        $('#tbody').html('<tr class="empty-row"><td colspan="9">加载中...</td></tr>');
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.period) params.set('period', state.period);
+        if (state.tenantId) params.set('tenantId', state.tenantId);
+        if (state.status) params.set('status', state.status);
+        API.bizGet('/api/v1/invoices?' + params.toString()).done(function (resp) {
+          if (!ok(resp)) {
+            $('#tbody').html('<tr class="empty-row"><td colspan="9">' + escHtml(rmsg(resp, '加载失败')) + '</td></tr>');
+            $('#pageInfo').html('');
+            return;
+          }
+          const data = resp.data || {};
+          const list = data.records || data.list || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="9">' + escHtml(xhrMsg(xhr, '加载失败')) + '</td></tr>');
+        });
+      }
+
+      function renderTable(list) {
+        if (!list.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="9">暂无账单（可点击右上角"补生成账单"按账期生成）</td></tr>');
+          return;
+        }
+        $('#tbody').html(list.map(function (v) {
+          // 基础费 = prorationAmount>0 ? 折算价 : 套餐月价（V8 语义 D-2；金额一律后端为准，前端只读展示）
+          const prorated = Number(v.prorationAmount || 0) > 0;
+          const baseFee = prorated ? v.prorationAmount : v.planPrice;
+          const st = v.status || '';
+          let btns = '<button class="btn btn-sm btn-outline-primary a-view" data-id="' + v.id + '">详情</button>';
+          if (st === 'draft') {
+            btns += ' <button class="btn btn-sm btn-outline-warning a-transit" data-id="' + v.id + '" data-target="issued">标记已出账</button>';
+          } else if (st === 'issued') {
+            btns += ' <button class="btn-sm btn btn-outline-success a-transit" data-id="' + v.id + '" data-target="paid">标记已收款</button>';
+          }
+          return '<tr>'
+            + '<td><strong>' + escHtml(v.period || '') + '</strong></td>'
+            + '<td>#' + escHtml(v.tenantId) + '</td>'
+            + '<td><span class="code-chip">' + escHtml(v.planCode || '-') + '</span><br>'
+            + '<span class="text-muted waterfall" style="font-size:12px;">月价 ' + fmtMoney(v.planPrice) + '</span></td>'
+            + '<td class="waterfall">用量 ' + fmtShort(v.usageTokens) + ' token'
+            + '<br>超量 ' + fmtShort(v.overageTokens) + ' token</td>'
+            + '<td class="num-cell">' + fmtMoney(baseFee)
+            + (prorated ? '<br><span class="proration-tag">首月折算价</span>' : '') + '</td>'
+            + '<td class="num-cell">' + fmtMoney(v.overageAmount) + '</td>'
+            + '<td class="num-cell"><strong>' + fmtMoney(v.totalAmount) + '</strong></td>'
+            + '<td>' + DICT.badge('invoiceStatus', st) + '</td>'
+            + '<td style="white-space:nowrap;">' + btns + '</td>'
+            + '</tr>';
+        }).join(''));
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + state.page + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', state.page <= 1);
+        $('#nextBtn').prop('disabled', state.page >= totalPages);
+      }
+
+      // ---- 详情（I2：detail JSON 快照——套餐五字段 + 用量明细 + 折算参数）----
+      $('#tbody').on('click', '.a-view', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/invoices/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const v = resp.data || {};
+          let d = {};
+          if (v.detail && typeof v.detail === 'object') d = v.detail;
+          else if (typeof v.detail === 'string') { try { d = JSON.parse(v.detail); } catch (e) { d = {}; } }
+          const plan = d.plan || {};
+          const pr = d.firstMonthProration;
+          const prorated = pr && pr.prorated === true;
+          $('#viewTitle').html(escHtml(v.period || '') + ' · 租户 #' + escHtml(v.tenantId) + ' ' + DICT.badge('invoiceStatus', v.status));
+          $('#viewBody').html(
+            '<div class="sec-title">账单金额（服务端计费为准）</div><div class="sec-body">'
+            + '套餐月价快照：' + fmtMoney(v.planPrice) + ' 元 · 超量费：' + fmtMoney(v.overageAmount) + ' 元'
+            + ' · 首月折算：' + fmtMoney(v.prorationAmount) + ' 元'
+            + (prorated ? ' <span class="proration-tag">（首月按剩余天数折算）</span>' : '')
+            + '<br>应缴合计：<strong style="font-size:16px;">' + fmtMoney(v.totalAmount) + ' 元</strong>'
+            + '<span class="text-muted"> = （' + (Number(v.prorationAmount || 0) > 0 ? '折算价' : '套餐月价') + '）+ 超量费</span></div>'
+            + '<div class="sec-title">套餐快照（出账时五字段，改价/下架不影响本单）</div><div class="sec-body">'
+            + '<span class="code-chip">' + escHtml(plan.code || v.planCode || '-') + '</span> ' + escHtml(plan.name || '-')
+            + ' · 月价 ' + fmtMoney(plan.monthlyPrice) + ' 元 · 超量单价 ' + fmtMoney(plan.tokenOveragePrice) + ' 元/千token · SLA '
+            + DICT.badge('slaLevel', plan.slaLevel) + '</div>'
+            + '<div class="sec-title">用量明细</div><div class="sec-body">Token 用量：' + fmtShort(d.tokenUsed) + ' / 配额 ' + fmtShort(d.tokenLimit)
+            + ' · 超额 ' + fmtShort(d.tokenOverageTokens) + ' · 计费千token数 ' + escHtml(d.ktokenBilled != null ? String(d.ktokenBilled) : '-')
+            + '<br>派生次数：' + escHtml(d.derivationCount != null ? String(d.derivationCount) : '-')
+            + ' · Case 数：' + escHtml(d.caseCount != null ? String(d.caseCount) : '-')
+            + ' · 存储用量：' + fmtShort(d.storageUsedMb) + ' MB</div>'
+            + (prorated || pr
+              ? '<div class="sec-title">首月折算参数（Q6）</div><div class="sec-body">'
+                + '创建日期：' + escHtml(pr && pr.createdDate ? pr.createdDate : '-')
+                + ' · 剩余天数：' + escHtml(pr && pr.remainingDays != null ? String(pr.remainingDays) : '-') + '（含创建当天）'
+                + ' · 当月天数：' + escHtml(pr && pr.daysInMonth != null ? String(pr.daysInMonth) : '-')
+                + ' · 折算：' + (prorated ? '是' : '否') + '</div>'
+              : '')
+            + '<div class="text-muted" style="font-size:13px;">出账时间：' + escHtml(fmtTime(v.createTime) || '-')
+            + ' · 出账来源：' + escHtml(v.createBy || '-') 
+            + (v.issuedTime ? ' · 出账标记：' + escHtml(fmtTime(v.issuedTime)) : '')
+            + (v.paidTime ? ' · 收款标记：' + escHtml(fmtTime(v.paidTime)) : '') + '</div>');
+          new bootstrap.Modal('#viewModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      // ---- 状态流转（I4：仅下一顺次 draft→issued→paid；前端按钮已按状态限定，非法流转后端 400 兜底）----
+      $('#tbody').on('click', '.a-transit', function () {
+        const id = $(this).data('id');
+        const target = $(this).data('target');
+        const label = target === 'issued' ? '标记已出账（draft→issued）' : '标记已收款（issued→paid）';
+        if (!confirm('确认对账单 #' + id + ' 执行「' + label + '」？流转后将记入审计。')) return;
+        API.bizPost('/api/v1/invoices/' + id + '/transit', { target: target }).done(function (resp) {
+          if (ok(resp)) loadList();
+          else { alert(rmsg(resp, '流转失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '流转失败')); });
+      });
+
+      // ---- 补生成（I3：{period, tenantId?}；draft 重算覆盖、issued/paid 保护）----
+      $('#genBtn').on('click', function () {
+        $('#gResult').addClass('d-none');
+        $('#gFailed').addClass('d-none');
+        new bootstrap.Modal('#genModal').show();
+      });
+
+      $('#gRunBtn').on('click', function () {
+        const period = $('#gPeriod').val();
+        if (!/^\d{4}-\d{2}$/.test(period)) { alert('请选择账期（yyyy-MM）'); return; }
+        const tenantIdRaw = $('#gTenantId').val();
+        const body = { period: period };
+        if (tenantIdRaw) body.tenantId = parseInt(tenantIdRaw, 10);
+        if (!confirm('确认补生成 ' + period + ' 账期账单' + (tenantIdRaw ? '（租户 #' + tenantIdRaw + '）' : '（全部租户）') + '？')) return;
+        const $btn = $(this).prop('disabled', true);
+        API.bizPost('/api/v1/invoices/generate', body).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '补生成失败')); return; }
+          const s = resp.data || {};
+          $('#gSummary').html('处理租户：<strong>' + escHtml(String(s.processed != null ? s.processed : '-')) + '</strong>'
+            + ' · 跳过试用：' + escHtml(String(s.skippedTrial != null ? s.skippedTrial : '-'))
+            + ' · 跳过未绑定：' + escHtml(String(s.skippedNoPlan != null ? s.skippedNoPlan : '-'))
+            + ' · 覆盖重算：' + escHtml(String(s.overwritten != null ? s.overwritten : '-')));
+          const failed = s.failed || [];
+          if (failed.length) {
+            $('#gFailed').removeClass('d-none')
+              .html('失败清单：<br>' + failed.map(function (f) {
+                return '租户 #' + escHtml(String(f.tenantId)) + ' — ' + escHtml(f.reason || '未知原因');
+              }).join('<br>'));
+          }
+          $('#gResult').removeClass('d-none');
+          loadList();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '补生成失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 筛选/分页事件 ----
+      $('#searchBtn').on('click', function () {
+        state.period = $('#periodFilter').val() || '';
+        state.tenantId = $('#tenantFilter').val().trim();
+        state.status = $('#statusFilter').val();
+        state.page = 1;
+        loadList();
+      });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+
+      // ---- 工具 ----
+      function fmtTime(t) {
+        if (!t) return '';
+        return String(t).replace('T', ' ').substring(0, 19);
+      }
+      function fmtMoney(v) {
+        if (v == null || isNaN(Number(v))) return '-';
+        return Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+      /** 大数缩写（万/亿），title 悬停精确值 */
+      function fmtShort(v) {
+        if (v == null || isNaN(Number(v))) return '-';
+        const n = Number(v);
+        const exact = n.toLocaleString('en-US');
+        if (n >= 1e8) return '<span title="' + exact + '">' + (n / 1e8).toFixed(2) + ' 亿</span>';
+        if (n >= 1e4) return '<span title="' + exact + '">' + (n / 1e4).toFixed(2) + ' 万</span>';
+        return exact;
+      }
+      function escHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+
+      // 初始化状态筛选（字典集中定义——P6/G11）
+      $('#statusFilter').html(DICT.options('invoiceStatus', '', '全部'));
+      loadList();
+    });
+  </script>
+</body>
+</html>

@@ -20,6 +20,15 @@
  *   - complianceResult    检查结果四色（pass/fail/partial/na）
  *   - bizcaseStatus       案例状态（draft/approved/rejected/executing/done）
  *
+ * case-20260823 商用化追加（T12，五新页 plan-list / tenant-list / invoice-list /
+ * cost-center / incident-list 统一引用，禁止散落各页面重复定义）：
+ *   - planCode            套餐编码（starter/pro/enterprise/custom）
+ *   - planEnabled         套餐上下架（'true'=在架/'false'=下架——V8 差异定稿 D-1：字段名 enabled 非 status）
+ *   - slaLevel            SLA 三档（bronze/silver/gold 徽章 + 响应/可用性承诺文案——
+ *                         D-17 全站唯一承诺文案集中处，后端零文案常量）
+ *   - invoiceStatus       账单状态（draft/issued/paid）
+ *   - incidentRecovered   事故恢复状态（'true'=已恢复/'false'=未恢复）
+ *
  * 模板类型为开放字典（P6 裁决），不在此穷举——由 template-list 页"预置 5 值 + 列表数据聚合
  * 自定义值"生成候选（AC-F1.10）。
  *
@@ -80,7 +89,26 @@
     '.gov-bc-approved{background:#f6ffed;color:#52c41a;}',
     '.gov-bc-rejected{background:#fff1f0;color:#f5222d;}',
     '.gov-bc-executing{background:#e6fffb;color:#13c2c2;}',
-    '.gov-bc-done{background:#f9f0ff;color:#722ed1;}'
+    '.gov-bc-done{background:#f9f0ff;color:#722ed1;}',
+
+    // ---- case-20260823 商用化追加（T12）----
+    // 套餐上下架徽章（enabled 1=在架 / 0=下架——V8 差异定稿 D-1，字段名 enabled 非 status）
+    '.gov-plan-on{background:#f6ffed;color:#52c41a;}',
+    '.gov-plan-off{background:#f5f5f5;color:#999;}',
+
+    // SLA 三档徽章（青铜=铜灰 / 白银=蓝灰 / 黄金=金橙——三档可视觉区分，AC-F3.1）
+    '.gov-sla-bronze{background:#f5f0ef;color:#8c5a3b;}',
+    '.gov-sla-silver{background:#e8f0f7;color:#4a6d8c;}',
+    '.gov-sla-gold{background:#fff7e6;color:#d48806;font-weight:700;}',
+
+    // 账单状态徽章（draft/issued/paid 单向顺次状态机——AC-F2.8）
+    '.gov-inv-draft{background:#e6f4ff;color:#1677ff;}',
+    '.gov-inv-issued{background:#fff7e6;color:#fa8c16;}',
+    '.gov-inv-paid{background:#f6ffed;color:#52c41a;}',
+
+    // 事故恢复状态徽章（recovery_time 非空=已恢复——AC-F3.2 展示口径）
+    '.gov-inc-recovered{background:#f6ffed;color:#52c41a;}',
+    '.gov-inc-unrecovered{background:#fff1f0;color:#f5222d;}'
   ].join('\n');
   var style = document.createElement('style');
   style.type = 'text/css';
@@ -166,6 +194,44 @@
       rejected: { text: '已拒绝', cls: 'gov-bc-rejected' },
       executing: { text: '执行中', cls: 'gov-bc-executing' },
       done: { text: '已完成', cls: 'gov-bc-done' }
+    },
+
+    // ---- case-20260823 商用化追加（T12）：plan-list / tenant-list / invoice-list / cost-center / incident-list 五新页统一引用 ----
+    /** 套餐编码（starter/pro/enterprise/custom 领域字典；custom 可多份以名称区分——AC-F1.2） */
+    planCode: {
+      starter: { text: '入门版' },
+      pro: { text: '专业版' },
+      enterprise: { text: '企业版' },
+      custom: { text: '定制版' }
+    },
+    /**
+     * 套餐上下架（V8 差异定稿 D-1：字段名 enabled（Boolean，1=在架/0=下架），非 SE §7.2 的 planStatus）。
+     * 键为 'true'/'false'（JS 对象键自然字符串化，DICT.badge('planEnabled', true) 直接可用）。
+     */
+    planEnabled: {
+      'true': { text: '在架', cls: 'gov-plan-on' },
+      'false': { text: '下架', cls: 'gov-plan-off' }
+    },
+    /**
+     * SLA 服务等级三档（bronze/silver/gold）——含响应时限 + 可用性承诺文案。
+     * D-17/P6：**全站唯一承诺文案集中处**（后端零文案常量），费用中心套餐卡两行渲染；
+     * 纯展示不参与任何计算/赔付（§7-4/7-5 范围外）。
+     */
+    slaLevel: {
+      bronze: { text: '青铜 Bronze', cls: 'gov-sla-bronze', promise: '响应承诺：工作日 ≤ 8 小时' , availability: '可用性承诺：99.0%' },
+      silver: { text: '白银 Silver', cls: 'gov-sla-silver', promise: '响应承诺：工作日 ≤ 4 小时', availability: '可用性承诺：99.5%' },
+      gold: { text: '黄金 Gold', cls: 'gov-sla-gold', promise: '响应承诺：7×24 ≤ 2 小时', availability: '可用性承诺：99.9%' }
+    },
+    /** 账单状态（draft→issued→paid 单向顺次，人工标记；跳变/回退后端 400——AC-F2.8） */
+    invoiceStatus: {
+      draft: { text: '草稿', cls: 'gov-inv-draft' },
+      issued: { text: '已出账', cls: 'gov-inv-issued' },
+      paid: { text: '已收款', cls: 'gov-inv-paid' }
+    },
+    /** 事故恢复状态（recovered 布尔由服务端按 recoveryTime 判定；键 'true'/'false'） */
+    incidentRecovered: {
+      'true': { text: '已恢复', cls: 'gov-inc-recovered' },
+      'false': { text: '未恢复', cls: 'gov-inc-unrecovered' }
     }
   };
 

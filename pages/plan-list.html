@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>套餐管理 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .code-chip { font-family:Consolas,monospace; font-weight:700; color:#1677ff; }
+    .tier-chip { display:inline-block; background:#f9f0ff; color:#722ed1; border-radius:9px; padding:1px 8px; font-size:12px; margin:1px 4px 1px 0; }
+    .tier-box { display:inline-block; border:1px solid #d3adf7; border-radius:8px; padding:3px 10px; margin:0 6px 6px 0; font-size:13px; cursor:pointer; }
+    .tier-box input { margin-right:4px; }
+    .ck-box { display:inline-block; border:1px solid #91caff; border-radius:8px; padding:3px 10px; margin:0 6px 6px 0; font-size:13px; cursor:pointer; }
+    .ck-box input { margin-right:4px; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .sec-title { font-weight:700; font-size:13px; color:#1677ff; margin-bottom:2px; }
+    .sec-body { font-size:13px; color:#333; background:#fafafa; border-radius:6px; padding:8px 12px; margin-bottom:10px; }
+    .num-cell { font-family:Consolas,monospace; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">套餐管理</h5>
+      <span class="text-muted" style="font-size:13px;">平台商品目录：月价/超量单价/SLA 档/功能开关；编辑改价不回写已生成账单（商品目录语义）</span>
+      <div class="spacer"></div>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">编码：</span>
+        <select id="codeFilter" class="form-select form-select-sm" style="width:auto;"></select>
+      </label>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">上下架：</span>
+        <select id="enabledFilter" class="form-select form-select-sm" style="width:auto;">
+          <option value="">全部</option>
+          <option value="true">在架</option>
+          <option value="false">下架</option>
+        </select>
+      </label>
+      <input id="keywordInput" class="form-control form-control-sm" style="width:160px;" placeholder="套餐名关键字">
+      <button id="searchBtn" class="btn btn-outline-secondary btn-sm">搜索</button>
+      <button id="newBtn" class="btn btn-primary btn-sm">+ 新建套餐</button>
+    </div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:90px;">编码</th>
+            <th>套餐名</th>
+            <th style="width:120px;">月价（元）</th>
+            <th style="width:150px;">超量单价（元/千token）</th>
+            <th style="width:120px;">SLA 档</th>
+            <th style="width:80px;">上下架</th>
+            <th style="width:170px;">创建信息</th>
+            <th style="width:230px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="empty-row"><td colspan="8">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pager">
+      <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+      <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+      <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+      <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="10">10/页</option>
+        <option value="20">20/页</option>
+        <option value="50">50/页</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 详情弹窗 -->
+  <div class="modal fade" id="viewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="viewTitle">套餐详情</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="viewBody"></div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">关闭</button></div>
+    </div></div>
+  </div>
+
+  <!-- 新建/编辑弹窗（features 结构化表单——不裸编辑 JSON，PRD 4.3） -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">新建套餐</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="row">
+          <div class="col-3 mb-2"><label class="form-label small">编码 <span class="text-danger">*</span></label>
+            <select id="fCode" class="form-select form-select-sm"></select></div>
+          <div class="col-5 mb-2"><label class="form-label small">套餐名 <span class="text-danger">*</span>（全局唯一）</label>
+            <input id="fName" class="form-control form-control-sm" maxlength="200"></div>
+          <div class="col-2 mb-2"><label class="form-label small">月价（元）<span class="text-danger">*</span></label>
+            <input id="fMonthlyPrice" type="number" min="0" step="0.01" class="form-control form-control-sm" placeholder="≥0，0=免费档"></div>
+          <div class="col-2 mb-2"><label class="form-label small">超量单价 <span class="text-danger">*</span></label>
+            <input id="fTokenOveragePrice" type="number" min="0" step="0.000001" class="form-control form-control-sm" title="元/千token，支持 6 位小数（如 0.335）"></div>
+        </div>
+        <div class="row">
+          <div class="col-3 mb-2"><label class="form-label small">SLA 档 <span class="text-danger">*</span></label>
+            <select id="fSlaLevel" class="form-select form-select-sm"></select></div>
+          <div class="col-4 mb-2 d-none" id="editionOverrideWrap"><label class="form-label small">授权版本（custom 必填）<span class="text-danger">*</span></label>
+            <select id="fEditionOverride" class="form-select form-select-sm">
+              <option value="">请选择</option>
+              <option value="starter">starter（入门版）</option>
+              <option value="pro">pro（专业版）</option>
+              <option value="enterprise">enterprise（企业版）</option>
+            </select></div>
+          <div class="col-3 mb-2 d-flex align-items-end">
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="fEnabled" checked>
+              <label class="form-check-label small" for="fEnabled">在架（可被新租户应用）</label></div>
+          </div>
+        </div>
+        <hr class="my-2">
+        <div class="sec-title">功能开关（features）</div>
+        <div class="row">
+          <div class="col-4 mb-2"><label class="form-label small">用户上限 maxUsers <span class="text-danger">*</span></label>
+            <input id="fMaxUsers" type="number" min="0" step="1" class="form-control form-control-sm"></div>
+          <div class="col-4 mb-2"><label class="form-label small">Case 上限 maxCases <span class="text-danger">*</span></label>
+            <input id="fMaxCases" type="number" min="0" step="1" class="form-control form-control-sm"></div>
+          <div class="col-4 mb-2"><label class="form-label small">Token 月配额 tokenLimit <span class="text-danger">*</span></label>
+            <input id="fTokenLimit" type="number" min="0" step="1" class="form-control form-control-sm"></div>
+          <div class="col-4 mb-2"><label class="form-label small">Case 月配额 caseLimit <span class="text-danger">*</span></label>
+            <input id="fCaseLimit" type="number" min="0" step="1" class="form-control form-control-sm"></div>
+          <div class="col-4 mb-2"><label class="form-label small">派生月配额 derivationLimit <span class="text-danger">*</span></label>
+            <input id="fDerivationLimit" type="number" min="0" step="1" class="form-control form-control-sm"></div>
+          <div class="col-4 mb-2"><label class="form-label small">存储上限 MB storageLimitMb <span class="text-danger">*</span></label>
+            <input id="fStorageLimitMb" type="number" min="0" step="1" class="form-control form-control-sm"></div>
+        </div>
+        <div class="mb-2"><label class="form-label small">分层开关 layerOverrides（应用时覆写租户层开关）</label><div>
+          <label class="ck-box"><input type="checkbox" id="fStrategyEnabled" checked> 战略层（L3）</label>
+          <label class="ck-box"><input type="checkbox" id="fProgramProjectEnabled" checked> 项目群/项目层（L2）</label>
+        </div></div>
+        <div class="mb-2"><label class="form-label small">模型档位 modelTiers <span class="text-danger">*</span>（至少一项；应用后派生仅允许所选档位）</label>
+          <div id="tierBoxes"><span class="text-muted">加载中...</span></div></div>
+        <div class="text-muted" style="font-size:12px;">custom 编码可建多份（名称区分）；标准三档同编码在架至多一份；上下架=编辑切换"在架"，无删除。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/governance-dict.js"></script>
+  <script src="../assets/js/sanitize.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      const DICT = window.GOV_DICT;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      // 模型档位真实值域（t_model_routing 档位名，ES-003 §2.5——非 PRD 示意名 high/mid/low）
+      const MODEL_TIERS = ['opus', 'sonnet', 'haiku', 'reasoning', 'structured', 'mechanical', 'code'];
+      // 金额域上限镜像（D-4/D-6）：月价 DECIMAL(14,2)、超量单价 DECIMAL(12,6)——超限前端先拦、后端 400 兜底
+      const MAX_MONTHLY = 999999999999.99;
+      const MAX_OVERAGE = 999999.999999;
+
+      const state = { page: 1, size: 10, code: '', enabled: '', keyword: '', total: 0 };
+
+      // ---- 响应工具：兼容 code=0（既有 R.ok）与 code=200（契约示例形态） ----
+      function ok(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
+      function xhrMsg(xhr, d) { return (xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || d || ('请求失败（' + xhr.status + '）'); }
+
+      // ---- 列表（P1）----
+      function loadList() {
+        $('#tbody').html('<tr class="empty-row"><td colspan="8">加载中...</td></tr>');
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.code) params.set('code', state.code);
+        if (state.enabled !== '') params.set('enabled', state.enabled);
+        if (state.keyword) params.set('keyword', state.keyword);
+        API.bizGet('/api/v1/plans?' + params.toString()).done(function (resp) {
+          if (!ok(resp)) {
+            $('#tbody').html('<tr class="empty-row"><td colspan="8">' + escHtml(rmsg(resp, '加载失败')) + '</td></tr>');
+            $('#pageInfo').html('');
+            return;
+          }
+          const data = resp.data || {};
+          const list = data.records || data.list || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="8">' + escHtml(xhrMsg(xhr, '加载失败')) + '</td></tr>');
+        });
+      }
+
+      function renderTable(list) {
+        if (!list.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="8">暂无套餐，点击右上角"新建套餐"创建</td></tr>');
+          return;
+        }
+        $('#tbody').html(list.map(function (p) {
+          const enabled = p.enabled === true || p.enabled === 1;
+          return '<tr>'
+            + '<td><span class="code-chip">' + escHtml(p.code || '') + '</span></td>'
+            + '<td><strong>' + escHtml(p.name || '') + '</strong>'
+            + (p.code === 'custom' && p.editionOverride ? ' <span class="text-muted" style="font-size:12px;">（授权 ' + escHtml(p.editionOverride) + '）</span>' : '') + '</td>'
+            + '<td class="num-cell">' + fmtMoney(p.monthlyPrice) + '</td>'
+            + '<td class="num-cell">' + fmtPrice6(p.tokenOveragePrice) + '</td>'
+            + '<td>' + DICT.badge('slaLevel', p.slaLevel) + '</td>'
+            + '<td>' + DICT.badge('planEnabled', String(enabled)) + '</td>'
+            + '<td style="font-size:12px;color:#999;">' + escHtml(p.createBy || '-') + '<br>' + escHtml(fmtTime(p.createTime) || '-') + '</td>'
+            + '<td style="white-space:nowrap;">'
+            + '<button class="btn btn-sm btn-outline-primary a-view" data-id="' + p.id + '">详情</button> '
+            + '<button class="btn btn-sm btn-outline-secondary a-edit" data-id="' + p.id + '">编辑</button> '
+            + '<button class="btn btn-sm ' + (enabled ? 'btn-outline-danger' : 'btn-outline-success') + ' a-toggle" data-id="' + p.id + '" data-enabled="' + enabled + '">'
+            + (enabled ? '下架' : '上架') + '</button>'
+            + '</td></tr>';
+        }).join(''));
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + state.page + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', state.page <= 1);
+        $('#nextBtn').prop('disabled', state.page >= totalPages);
+      }
+
+      // ---- 详情（P3；features 结构化回显）----
+      $('#tbody').on('click', '.a-view', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/plans/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const p = resp.data || {};
+          const f = p.features || {};
+          const lo = f.layerOverrides || {};
+          const tiers = (f.modelTiers || []).map(function (t) {
+            return '<span class="tier-chip">' + escHtml(t) + '</span>';
+          }).join('') || '<span class="text-muted">（无）</span>';
+          const enabled = p.enabled === true || p.enabled === 1;
+          const sla = DICT.data.slaLevel[p.slaLevel];
+          $('#viewTitle').html('<span class="code-chip">' + escHtml(p.code || '') + '</span> ' + escHtml(p.name || '')
+            + ' ' + DICT.badge('planEnabled', String(enabled)));
+          $('#viewBody').html(
+            '<div class="sec-title">定价与 SLA</div><div class="sec-body">月价：<strong>' + fmtMoney(p.monthlyPrice)
+            + ' 元</strong> · 超量单价：<strong>' + fmtPrice6(p.tokenOveragePrice) + '</strong> 元/千token · SLA 档：'
+            + DICT.badge('slaLevel', p.slaLevel)
+            + (sla ? '<br><span class="text-muted">' + escHtml(sla.promise) + ' · ' + escHtml(sla.availability) + '</span>' : '')
+            + (p.code === 'custom' ? ' · 授权版本：' + escHtml(p.editionOverride || '-') : '') + '</div>'
+            + '<div class="sec-title">配额与限制（features）</div><div class="sec-body">用户上限：' + num(f.maxUsers)
+            + ' · Case 上限：' + num(f.maxCases) + ' · Token 月配额：' + num(f.tokenLimit)
+            + ' · Case 月配额：' + num(f.caseLimit) + ' · 派生月配额：' + num(f.derivationLimit)
+            + ' · 存储上限：' + num(f.storageLimitMb) + ' MB</div>'
+            + '<div class="sec-title">分层开关（layerOverrides）</div><div class="sec-body">战略层（L3）：'
+            + (lo.strategyEnabled === 1 || lo.strategyEnabled === true ? '开' : '关')
+            + ' · 项目群/项目层（L2）：' + (lo.programProjectEnabled === 1 || lo.programProjectEnabled === true ? '开' : '关') + '</div>'
+            + '<div class="sec-title">模型档位（modelTiers）</div><div class="sec-body">' + tiers + '</div>'
+            + '<div class="text-muted" style="font-size:13px;">创建人：' + escHtml(p.createBy || '-') + ' · 创建时间：' + escHtml(fmtTime(p.createTime) || '-') + '</div>');
+          new bootstrap.Modal('#viewModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      // ---- 新建/编辑弹窗（features 结构化表单）----
+      function renderTierBoxes(selected) {
+        selected = selected || [];
+        $('#tierBoxes').html(MODEL_TIERS.map(function (t) {
+          const checked = selected.indexOf(t) !== -1 ? ' checked' : '';
+          return '<label class="tier-box"><input type="checkbox" class="tier-ck" value="' + escAttr(t) + '"' + checked + '>' + escHtml(t) + '</label>';
+        }).join(''));
+      }
+
+      function syncCodeLinkage() {
+        // custom↔edition_override 双向联动（D-9）：custom 显示授权版本下拉、非 custom 隐藏并重置
+        const isCustom = $('#fCode').val() === 'custom';
+        $('#editionOverrideWrap').toggleClass('d-none', !isCustom);
+        if (!isCustom) $('#fEditionOverride').val('');
+      }
+      $('#fCode').on('change', syncCodeLinkage);
+
+      function openEdit(p) {
+        p = p || {};
+        const f = p.features || {};
+        const lo = f.layerOverrides || {};
+        $('#fId').val(p.id || '');
+        $('#fCode').html(DICT.options('planCode', p.code || 'starter'));
+        $('#fName').val(p.name || '');
+        $('#fMonthlyPrice').val(p.monthlyPrice != null ? p.monthlyPrice : '');
+        $('#fTokenOveragePrice').val(p.tokenOveragePrice != null ? p.tokenOveragePrice : '');
+        $('#fSlaLevel').html(DICT.options('slaLevel', p.slaLevel || '', '请选择'));
+        $('#fEditionOverride').val(p.editionOverride || '');
+        $('#fEnabled').prop('checked', p.id ? (p.enabled === true || p.enabled === 1) : true);
+        $('#fMaxUsers').val(f.maxUsers != null ? f.maxUsers : '');
+        $('#fMaxCases').val(f.maxCases != null ? f.maxCases : '');
+        $('#fTokenLimit').val(f.tokenLimit != null ? f.tokenLimit : '');
+        $('#fCaseLimit').val(f.caseLimit != null ? f.caseLimit : '');
+        $('#fDerivationLimit').val(f.derivationLimit != null ? f.derivationLimit : '');
+        $('#fStorageLimitMb').val(f.storageLimitMb != null ? f.storageLimitMb : '');
+        $('#fStrategyEnabled').prop('checked', lo.strategyEnabled === 1 || lo.strategyEnabled === true);
+        $('#fProgramProjectEnabled').prop('checked', lo.programProjectEnabled === 1 || lo.programProjectEnabled === true);
+        renderTierBoxes(f.modelTiers || []);
+        syncCodeLinkage();
+        $('#modalTitle').text(p.id ? '编辑套餐 #' + p.id : '新建套餐');
+        new bootstrap.Modal('#editModal').show();
+      }
+
+      $('#newBtn').on('click', function () { openEdit(null); });
+
+      $('#tbody').on('click', '.a-edit', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/plans/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          openEdit(resp.data || {});
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      function collectTiers() {
+        const arr = [];
+        $('#editModal .tier-ck:checked').each(function () { arr.push($(this).val()); });
+        return arr;
+      }
+
+      function readForm() {
+        const code = $('#fCode').val();
+        const name = $('#fName').val().trim();
+        const monthlyPrice = parseFloat($('#fMonthlyPrice').val());
+        const tokenOveragePrice = parseFloat($('#fTokenOveragePrice').val());
+        const slaLevel = $('#fSlaLevel').val();
+        const editionOverride = code === 'custom' ? ($('#fEditionOverride').val() || null) : null;
+        // 前端先拦（后端 400 指名兜底）：必填/枚举/金额非负/域上限/整数配额
+        if (!name) { alert('套餐名不能为空'); return null; }
+        if (isNaN(monthlyPrice) || isNaN(tokenOveragePrice)) { alert('月价与超量单价为必填数字'); return null; }
+        if (monthlyPrice < 0 || tokenOveragePrice < 0) { alert('金额不能为负'); return null; }
+        if (monthlyPrice > MAX_MONTHLY) { alert('月价超出 DECIMAL(14,2) 域上限 999,999,999,999.99'); return null; }
+        if (tokenOveragePrice > MAX_OVERAGE) { alert('超量单价超出 DECIMAL(12,6) 域上限 999,999.999999'); return null; }
+        if (!slaLevel) { alert('SLA 档必选（bronze/silver/gold）'); return null; }
+        if (code === 'custom' && !editionOverride) { alert('custom 套餐必选授权版本（starter/pro/enterprise）'); return null; }
+        const nums = {
+          maxUsers: $('#fMaxUsers').val(), maxCases: $('#fMaxCases').val(), tokenLimit: $('#fTokenLimit').val(),
+          caseLimit: $('#fCaseLimit').val(), derivationLimit: $('#fDerivationLimit').val(), storageLimitMb: $('#fStorageLimitMb').val()
+        };
+        for (const k in nums) {
+          const v = parseInt(nums[k], 10);
+          if (nums[k] === '' || isNaN(v) || v < 0) { alert('features 数字项均为必填非负整数：' + k); return null; }
+          nums[k] = v;
+        }
+        const modelTiers = collectTiers();
+        if (!modelTiers.length) { alert('模型档位至少选择一项'); return null; }
+        return {
+          code: code,
+          name: name,
+          monthlyPrice: monthlyPrice,
+          tokenOveragePrice: tokenOveragePrice,
+          slaLevel: slaLevel,
+          editionOverride: editionOverride,
+          features: {
+            maxUsers: nums.maxUsers,
+            maxCases: nums.maxCases,
+            tokenLimit: nums.tokenLimit,
+            caseLimit: nums.caseLimit,
+            derivationLimit: nums.derivationLimit,
+            storageLimitMb: nums.storageLimitMb,
+            layerOverrides: {
+              strategyEnabled: $('#fStrategyEnabled').prop('checked') ? 1 : 0,
+              programProjectEnabled: $('#fProgramProjectEnabled').prop('checked') ? 1 : 0
+            },
+            modelTiers: modelTiers
+          },
+          enabled: $('#fEnabled').prop('checked')
+        };
+      }
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const body = readForm();
+        if (!body) return;
+        const $btn = $(this).prop('disabled', true);
+        const req = id ? API.bizPut('/api/v1/plans/' + id, body) : API.bizPost('/api/v1/plans', body);
+        req.done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadList();
+          } else { alert(rmsg(resp, '保存失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '保存失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 上下架（P4 全量编辑承载；下架不可被新租户应用，存量绑定租户不受影响——AC-F1.4）----
+      $('#tbody').on('click', '.a-toggle', function () {
+        const id = $(this).data('id');
+        const enabled = $(this).data('enabled') === true || $(this).data('enabled') === 'true';
+        if (!confirm(enabled ? '确认下架该套餐？下架后不可被新租户应用（存量绑定租户与已生成账单不受影响）。'
+          : '确认重新上架该套餐？标准三档同编码在架至多一份（重复将被拒绝）。')) return;
+        API.bizGet('/api/v1/plans/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const body = resp.data || {};
+          const f = body.features || {};
+          const lo = f.layerOverrides || {};
+          const submit = {
+            code: body.code,
+            name: body.name,
+            monthlyPrice: body.monthlyPrice,
+            tokenOveragePrice: body.tokenOveragePrice,
+            slaLevel: body.slaLevel,
+            editionOverride: body.editionOverride || null,
+            features: {
+              maxUsers: f.maxUsers, maxCases: f.maxCases, tokenLimit: f.tokenLimit,
+              caseLimit: f.caseLimit, derivationLimit: f.derivationLimit, storageLimitMb: f.storageLimitMb,
+              layerOverrides: {
+                strategyEnabled: lo.strategyEnabled === 1 || lo.strategyEnabled === true ? 1 : 0,
+                programProjectEnabled: lo.programProjectEnabled === 1 || lo.programProjectEnabled === true ? 1 : 0
+              },
+              modelTiers: f.modelTiers || []
+            },
+            enabled: !enabled
+          };
+          API.bizPut('/api/v1/plans/' + id, submit).done(function (r2) {
+            if (ok(r2)) loadList();
+            else { alert(rmsg(r2, '操作失败')); }
+          }).fail(function (xhr) { alert(xhrMsg(xhr, '操作失败')); });
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      // ---- 筛选/分页事件 ----
+      $('#codeFilter').on('change', function () { state.code = $(this).val(); state.page = 1; loadList(); });
+      $('#enabledFilter').on('change', function () { state.enabled = $(this).val(); state.page = 1; loadList(); });
+      $('#searchBtn').on('click', function () { state.keyword = $('#keywordInput').val().trim(); state.page = 1; loadList(); });
+      $('#keywordInput').on('keydown', function (e) { if (e.key === 'Enter') $('#searchBtn').click(); });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+
+      // ---- 工具 ----
+      function fmtTime(t) {
+        if (!t) return '';
+        return String(t).replace('T', ' ').substring(0, 19);
+      }
+      function fmtMoney(v) {
+        if (v == null || isNaN(Number(v))) return '-';
+        return Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+      function fmtPrice6(v) {
+        if (v == null || isNaN(Number(v))) return '-';
+        return Number(v).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 6 });
+      }
+      function num(v) { return (v == null || v === '') ? '-' : String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+      function escHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function escAttr(s) { return escHtml(s); }
+
+      // 初始化筛选下拉（字典集中定义，页面零散落枚举——P6/G11）
+      $('#codeFilter').html(DICT.options('planCode', '', '全部'));
+      loadList();
+    });
+  </script>
+</body>
+</html>

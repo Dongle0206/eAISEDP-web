@@ -28,7 +28,11 @@
     // 三域前缀不注册 LayerGuard，任何层开关组合下完整可用；不挂 layerHidden（AC-SWITCH.1 菜单不隐藏）
     { key: 'risk-board', title: '风险合规', page: 'pages/risk-board.html' },
     { key: 'compliance-check-list', title: '合规检查', page: 'pages/compliance-check-list.html' },
-    { key: 'business-case-list', title: '投资决策', page: 'pages/business-case-list.html' }
+    { key: 'business-case-list', title: '投资决策', page: 'pages/business-case-list.html' },
+    // case-20260823 商用化（T17/T18）：事故台账全五角色可见（incident:view 只读——
+    // engineer/executive 写按钮页内按角色隐藏，后端 403 兜底，L3 risk-board 同法）；
+    // 前缀不注册 LayerGuard，任何层开关组合下恒可用（AC-G3）；不挂 layerHidden
+    { key: 'incident-list', title: '事故台账', page: 'pages/incident-list.html' }
   ];
 
   const ROLE_MENUS = {
@@ -38,7 +42,12 @@
       { key: 'model-routing', title: '模型路由', page: 'pages/model-routing.html' },
       { key: 'quota', title: '配额管理', page: 'pages/quota.html' },
       { key: 'audit-log', title: '审计日志', page: 'pages/audit-log.html' },
-      { key: 'monitor', title: '系统监控', page: 'pages/monitor.html' }
+      { key: 'monitor', title: '系统监控', page: 'pages/monitor.html' },
+      // case-20260823 商用化（T13/T15/T18）：套餐管理/平台账单/租户管理——platform_admin 专属
+      // （plan:*/bill:* 权限仅此角色；租户管理行内"订阅变更"= U2 套餐应用，仅 platform_admin）
+      { key: 'plan-list', title: '套餐管理', page: 'pages/plan-list.html' },
+      { key: 'invoice-list', title: '平台账单', page: 'pages/invoice-list.html' },
+      { key: 'tenant-list', title: '租户管理', page: 'pages/tenant-list.html' }
     ],
     tenant_admin: [
       { key: 'user', title: '用户管理', page: 'pages/user-list.html' },
@@ -58,7 +67,11 @@
       // 批C L2治理核心：DORA/依赖挂 L2 开关过滤（保持 tenant_admin 专属不变）；
       // ADR 库/技术雷达已移 COMMON_MENUS（R1：租户级知识资产全角色可见，不再挂 tenant_admin）
       { key: 'dora-board', title: '效能看板', page: 'pages/dora-board.html' },
-      { key: 'dependency-board', title: '依赖管理', page: 'pages/dependency-board.html' }
+      { key: 'dependency-board', title: '依赖管理', page: 'pages/dependency-board.html' },
+      // case-20260823 商用化（T16/T18）：费用中心——tenant_admin 专属（cost:view；
+      // platform_admin 亦持 cost:view 但其菜单走 platform_admin 组，此处不重复挂载；
+      // executive/engineer 403——裁决 Q5，不挂菜单）
+      { key: 'cost-center', title: '费用中心', page: 'pages/cost-center.html' }
     ],
     project_manager: [
       // 批5 三层贯通：项目经理可管理项目（L2 关闭时页面显示 43002 友好提示）

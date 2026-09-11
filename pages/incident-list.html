@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>事故台账 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:16px; }
+    .breach-tag { display:inline-block; background:#fff1f0; color:#f5222d; border-radius:9px; padding:1px 8px; font-size:12px; font-weight:700; }
+    .no-breach { color:#999; font-size:12px; }
+    .sec-title { font-weight:700; font-size:13px; color:#1677ff; margin-bottom:2px; }
+    .sec-body { font-size:13px; color:#333; background:#fafafa; border-radius:6px; padding:8px 12px; margin-bottom:10px; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">事故台账</h5>
+      <span class="text-muted" style="font-size:13px;">服务事故登记与复盘（轻量台账）：恢复时间/根因可后补；全角色可读，登记/编辑按角色</span>
+      <div class="spacer"></div>
+      <label class="mb-0 d-flex align-items-center" style="gap:6px;">
+        <span class="text-muted">恢复状态：</span>
+        <select id="recoveredFilter" class="form-select form-select-sm" style="width:auto;">
+          <option value="">全部</option>
+          <option value="false">未恢复</option>
+          <option value="true">已恢复</option>
+        </select>
+      </label>
+      <button id="searchBtn" class="btn btn-outline-secondary btn-sm">筛选</button>
+      <button id="newBtn" class="btn btn-primary btn-sm gov-write" style="display:none;">+ 登记事故</button>
+    </div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>标题</th>
+            <th style="width:150px;">发生时间</th>
+            <th style="width:100px;">恢复状态</th>
+            <th style="width:150px;">恢复时间</th>
+            <th>影响描述</th>
+            <th>根因摘要</th>
+            <th style="width:90px;">SLA 违约</th>
+            <th style="width:140px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="empty-row"><td colspan="8">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div class="pager">
+      <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+      <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+      <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+      <select id="sizeSelect" class="form-select form-select-sm" style="width:auto;">
+        <option value="10">10/页</option>
+        <option value="20">20/页</option>
+        <option value="50">50/页</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- 详情弹窗 -->
+  <div class="modal fade" id="viewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="viewTitle">事故详情</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="viewBody"></div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">关闭</button></div>
+    </div></div>
+  </div>
+
+  <!-- 登记/编辑弹窗（N2/N4；恢复时间/根因可后补——AC-F3.2 补记场景） -->
+  <div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="modalTitle">登记事故</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fId">
+        <div class="row">
+          <div class="col-8 mb-2"><label class="form-label small">标题 <span class="text-danger">*</span></label>
+            <input id="fTitle" class="form-control form-control-sm" maxlength="200" placeholder="如：派生服务超时"></div>
+          <div class="col-4 mb-2"><label class="form-label small">发生时间 <span class="text-danger">*</span></label>
+            <input id="fOccurredTime" type="datetime-local" step="1" class="form-control form-control-sm"></div>
+        </div>
+        <div class="row">
+          <div class="col-4 mb-2"><label class="form-label small">恢复时间（可空=未恢复，可后补）</label>
+            <input id="fRecoveryTime" type="datetime-local" step="1" class="form-control form-control-sm"></div>
+          <div class="col-8 mb-2 d-flex align-items-end">
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="fSlaBreach">
+              <label class="form-check-label small" for="fSlaBreach">SLA 违约（登记时人工判定，纯台账标记不触发赔付）</label></div>
+          </div>
+        </div>
+        <div class="mb-2"><label class="form-label small">影响描述 <span class="text-danger">*</span></label>
+          <textarea id="fImpactDesc" class="form-control form-control-sm" rows="3" maxlength="1000" placeholder="受影响的租户/功能/时长等"></textarea></div>
+        <div class="mb-2"><label class="form-label small">根因（可空，恢复后补记）</label>
+          <textarea id="fRootCause" class="form-control form-control-sm" rows="3" maxlength="1000"></textarea></div>
+        <div class="text-muted" style="font-size:12px;">恢复时间须不早于发生时间；补记恢复时间/根因后状态自动翻转为"已恢复"。台账无删除（留痕）。</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button><button id="saveBtn" class="btn btn-primary btn-sm">保存</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/governance-dict.js"></script>
+  <script src="../assets/js/sanitize.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      const DICT = window.GOV_DICT;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const state = { page: 1, size: 10, recovered: '', total: 0 };
+      // 写权限：incident:create/edit = platform_admin / tenant_admin / project_manager
+      // （engineer、executive 只读——AC-F3.4；gov-write 先例：按钮页内隐藏，后端 403 兜底）
+      const perm = { write: false };
+
+      // ---- 响应工具：兼容 code=0（既有 R.ok）与 code=200（契约示例形态） ----
+      function ok(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
+      function xhrMsg(xhr, d) { return (xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || d || ('请求失败（' + xhr.status + '）'); }
+
+      function loadPerm() {
+        const d = $.Deferred();
+        API.current().done(function (resp) {
+          if (!ok(resp)) { d.resolve(); return; }
+          const roles = ((resp.data || {}).roleCodes) || [];
+          perm.write = roles.indexOf('platform_admin') !== -1
+            || roles.indexOf('tenant_admin') !== -1
+            || roles.indexOf('project_manager') !== -1;
+          if (perm.write) $('#newBtn').show();
+          d.resolve();
+        }).fail(function () { d.resolve(); /* 保持只读，后端 403 兜底 */ });
+        return d.promise();
+      }
+
+      // ---- 列表（N1：默认发生时间倒序，recovered 筛选）----
+      function loadList() {
+        $('#tbody').html('<tr class="empty-row"><td colspan="8">加载中...</td></tr>');
+        const params = new URLSearchParams();
+        params.set('page', state.page);
+        params.set('size', state.size);
+        if (state.recovered !== '') params.set('recovered', state.recovered);
+        API.bizGet('/api/v1/incidents?' + params.toString()).done(function (resp) {
+          if (!ok(resp)) {
+            $('#tbody').html('<tr class="empty-row"><td colspan="8">' + escHtml(rmsg(resp, '加载失败')) + '</td></tr>');
+            $('#pageInfo').html('');
+            return;
+          }
+          const data = resp.data || {};
+          const list = data.records || data.list || [];
+          state.total = data.total != null ? data.total : list.length;
+          renderTable(list);
+          renderPager();
+        }).fail(function (xhr) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="8">' + escHtml(xhrMsg(xhr, '加载失败')) + '</td></tr>');
+        });
+      }
+
+      function renderTable(list) {
+        if (!list.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="8">暂无事故记录</td></tr>');
+          return;
+        }
+        $('#tbody').html(list.map(function (n) {
+          const recovered = n.recovered === true;
+          const breach = n.slaBreach === 1 || n.slaBreach === true;
+          const btns = ['<button class="btn btn-sm btn-outline-primary a-view" data-id="' + n.id + '">详情</button>'];
+          if (perm.write) {
+            btns.push('<button class="btn btn-sm btn-outline-secondary a-edit" data-id="' + n.id + '">编辑</button>');
+          }
+          return '<tr>'
+            + '<td><strong>' + escHtml(n.title || '') + '</strong></td>'
+            + '<td>' + escHtml(fmtTime(n.occurredTime) || '-') + '</td>'
+            + '<td>' + DICT.badge('incidentRecovered', String(recovered)) + '</td>'
+            + '<td>' + escHtml(fmtTime(n.recoveryTime) || '—') + '</td>'
+            + '<td style="max-width:260px;">' + escHtml(ellipsis(n.impactDesc || '-', 60)) + '</td>'
+            + '<td style="max-width:220px;">' + (n.rootCause ? escHtml(ellipsis(n.rootCause, 50)) : '<span class="text-muted">待补记</span>') + '</td>'
+            + '<td>' + (breach ? '<span class="breach-tag">违约</span>' : '<span class="no-breach">—</span>') + '</td>'
+            + '<td style="white-space:nowrap;">' + btns.join(' ') + '</td>'
+            + '</tr>';
+        }).join(''));
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + state.page + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', state.page <= 1);
+        $('#nextBtn').prop('disabled', state.page >= totalPages);
+      }
+
+      // ---- 详情（N3）----
+      $('#tbody').on('click', '.a-view', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/incidents/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const n = resp.data || {};
+          const recovered = n.recovered === true;
+          const breach = n.slaBreach === 1 || n.slaBreach === true;
+          $('#viewTitle').html(escHtml(n.title || '') + ' ' + DICT.badge('incidentRecovered', String(recovered)));
+          $('#viewBody').html(
+            '<div class="sec-title">时间线</div><div class="sec-body">发生：' + escHtml(fmtTime(n.occurredTime) || '-')
+            + ' · 恢复：' + (n.recoveryTime ? escHtml(fmtTime(n.recoveryTime)) : '未恢复（待补记）')
+            + ' · SLA 违约：' + (breach ? '<span class="breach-tag">是（人工判定）</span>' : '否') + '</div>'
+            + '<div class="sec-title">影响描述</div><div class="sec-body">' + escHtml(n.impactDesc || '（未填写）') + '</div>'
+            + '<div class="sec-title">根因</div><div class="sec-body">' + (n.rootCause ? escHtml(n.rootCause) : '<span class="text-muted">待补记（恢复后编辑补录）</span>') + '</div>'
+            + '<div class="text-muted" style="font-size:13px;">登记人：' + escHtml(n.createBy || '-') + ' · 登记时间：' + escHtml(fmtTime(n.createTime) || '-') + '</div>');
+          new bootstrap.Modal('#viewModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      // ---- 登记/编辑（N2/N4）----
+      function openEdit(n) {
+        n = n || {};
+        $('#fId').val(n.id || '');
+        $('#fTitle').val(n.title || '');
+        $('#fOccurredTime').val(toLocalInput(n.occurredTime));
+        $('#fRecoveryTime').val(toLocalInput(n.recoveryTime));
+        $('#fImpactDesc').val(n.impactDesc || '');
+        $('#fRootCause').val(n.rootCause || '');
+        $('#fSlaBreach').prop('checked', n.slaBreach === 1 || n.slaBreach === true);
+        $('#modalTitle').text(n.id ? '编辑事故 #' + n.id : '登记事故');
+        new bootstrap.Modal('#editModal').show();
+      }
+
+      $('#newBtn').on('click', function () { openEdit(null); });
+
+      $('#tbody').on('click', '.a-edit', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/incidents/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          openEdit(resp.data || {});
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      $('#saveBtn').on('click', function () {
+        const id = $('#fId').val();
+        const title = $('#fTitle').val().trim();
+        const occurredTime = toApiTime($('#fOccurredTime').val());
+        const recoveryTimeRaw = $('#fRecoveryTime').val();
+        const recoveryTime = recoveryTimeRaw ? toApiTime(recoveryTimeRaw) : null;
+        // 前端先拦（后端 400 兜底）：必填 + 恢复时间≥发生时间（倒挂拦截）
+        if (!title) { alert('标题不能为空'); return; }
+        if (!occurredTime) { alert('发生时间必填'); return; }
+        if (!$('#fImpactDesc').val().trim()) { alert('影响描述不能为空'); return; }
+        if (recoveryTime && recoveryTime < occurredTime) { alert('恢复时间不能早于发生时间'); return; }
+        const body = {
+          title: title,
+          occurredTime: occurredTime,
+          impactDesc: $('#fImpactDesc').val().trim(),
+          recoveryTime: recoveryTime,
+          rootCause: $('#fRootCause').val().trim() || null,
+          slaBreach: $('#fSlaBreach').prop('checked')
+        };
+        const $btn = $(this).prop('disabled', true);
+        const req = id ? API.bizPut('/api/v1/incidents/' + id, body) : API.bizPost('/api/v1/incidents', body);
+        req.done(function (resp) {
+          if (ok(resp)) {
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+            loadList();
+          } else { alert(rmsg(resp, '保存失败')); }
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '保存失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 筛选/分页事件 ----
+      $('#recoveredFilter').on('change', function () { state.recovered = $(this).val(); state.page = 1; loadList(); });
+      $('#searchBtn').on('click', function () { state.page = 1; loadList(); });
+      $('#sizeSelect').on('change', function () { state.size = parseInt($(this).val(), 10); state.page = 1; loadList(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadList(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadList(); }
+      });
+
+      // ---- 工具 ----
+      function fmtTime(t) {
+        if (!t) return '';
+        return String(t).replace('T', ' ').substring(0, 19);
+      }
+      /** "yyyy-MM-dd HH:mm:ss" → datetime-local "yyyy-MM-ddTHH:mm:ss" */
+      function toLocalInput(t) {
+        if (!t) return '';
+        return String(t).replace(' ', 'T').substring(0, 19);
+      }
+      /** datetime-local → "yyyy-MM-dd HH:mm:ss"（契约时间格式） */
+      function toApiTime(v) {
+        if (!v) return '';
+        return String(v).replace('T', ' ').substring(0, 19);
+      }
+      function ellipsis(s, n) {
+        return String(s).length > n ? String(s).substring(0, n) + '…' : String(s);
+      }
+      function escHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+
+      $.when(loadPerm()).then(loadList);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>租户管理 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+    .toolbar .spacer { flex:1; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .num-cell { font-family:Consolas,monospace; }
+    .waterfall { font-size:12px; }
+    .hint-box { background:#fffbe6; border:1px solid #ffe58f; border-radius:6px; padding:8px 12px; font-size:13px; margin-bottom:8px; }
+    .snapshot-box { background:#f6ffed; border:1px solid #b7eb8f; border-radius:6px; padding:10px 12px; font-size:13px; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <h5 class="mb-0">租户管理</h5>
+      <span class="text-muted" style="font-size:13px;">行内「订阅变更」= 套餐应用（试用转正/升降级标准路径，仅 platform_admin）</span>
+      <div class="spacer"></div>
+      <span class="text-muted" style="font-size:13px;">账期：</span>
+      <select id="periodFilter" class="form-select form-select-sm" style="width:auto;">
+        <option value="">最新一期</option>
+      </select>
+      <button id="refreshBtn" class="btn btn-outline-secondary btn-sm">刷新</button>
+    </div>
+
+    <!-- 表格 -->
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover bg-white mb-0">
+        <thead class="table-light">
+          <tr>
+            <th style="width:110px;">租户</th>
+            <th style="width:90px;">当期账期</th>
+            <th style="width:190px;">Token 用量水位</th>
+            <th style="width:170px;">派生用量水位</th>
+            <th style="width:130px;">月成本快照（元）</th>
+            <th style="width:140px;">操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="empty-row"><td colspan="6">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="text-muted" style="font-size:12px;margin-top:8px;">
+      租户清单按当期配额行聚合（platform_admin 跨租户通道）；套餐绑定/版本/到期详见「订阅变更」弹窗快照（U2 出参）。
+    </div>
+  </div>
+
+  <!-- 订阅变更弹窗（U2 扩展：选在架套餐 → planCode 提交；五类落库单事务提示） -->
+  <div class="modal fade" id="subModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="subTitle">订阅变更（套餐应用）</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="sTenantId">
+        <div class="hint-box">
+          应用在架套餐将<strong>单事务五类落库</strong>（任一步失败全部回滚）：① 版本 edition 覆写（custom 取授权版本）
+          ② 绑定套餐 plan_code ③ 到期时间置空 ④ 当期配额四限 + 月成本按套餐覆写 ⑤ 分层开关按套餐覆写。
+          模型档位范围经绑定即时生效。
+        </div>
+        <div class="mb-2">
+          <label class="form-label small">选择在架套餐（enabled=true） <span class="text-danger">*</span></label>
+          <select id="sPlanCode" class="form-select form-select-sm"></select>
+          <div class="text-muted" style="font-size:12px;" id="sPlanHint"></div>
+        </div>
+        <div id="sResult" class="d-none">
+          <div class="sec-snap-title" style="font-weight:700;font-size:13px;color:#52c41a;margin-bottom:4px;">应用成功（U1 口径快照）</div>
+          <div class="snapshot-box" id="sSnapshot"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">关闭</button>
+        <button id="sApplyBtn" class="btn btn-primary btn-sm">确认应用</button>
+      </div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/governance-dict.js"></script>
+  <script src="../assets/js/sanitize.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      const DICT = window.GOV_DICT;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const state = { period: '' };
+      let plans = []; // 在架套餐缓存（P1 enabled=true，供订阅变更下拉）
+
+      // ---- 响应工具：兼容 code=0（既有 R.ok）与 code=200（契约示例形态） ----
+      function ok(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
+      function xhrMsg(xhr, d) { return (xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || d || ('请求失败（' + xhr.status + '）'); }
+
+      // ---- 写权限：U2 仅 platform_admin（JWT roles 显式校验，F3 先例；菜单已限 platform_admin，此处双保险 + 后端 403 兜底） ----
+      const perm = { write: false };
+      API.current().done(function (resp) {
+        if (!ok(resp)) return;
+        const roles = ((resp.data || {}).roleCodes) || [];
+        perm.write = roles.indexOf('platform_admin') !== -1;
+        if (!perm.write) $('#tbody .gov-write').hide();
+      }).fail(function () { /* 保持可用，后端 403 兜底 */ });
+
+      // ---- 租户清单（既有跨租户通道：/api/v1/quotas 聚合——platform_admin 见全量配额行，按租户取所选账期行） ----
+      function loadTenants() {
+        $('#tbody').html('<tr class="empty-row"><td colspan="6">加载中...</td></tr>');
+        API.bizGet('/api/v1/quotas').done(function (resp) {
+          if (!ok(resp)) {
+            $('#tbody').html('<tr class="empty-row"><td colspan="6">' + escHtml(rmsg(resp, '加载失败')) + '</td></tr>');
+            return;
+          }
+          let list = resp.data || [];
+          if (!Array.isArray(list)) list = list.records || list.list || [];
+          // 聚合：同租户多账期 → 取账期最大行；账期筛选时仅取该期
+          const byTenant = {};
+          list.forEach(function (q) {
+            if (q == null || q.tenantId == null) return;
+            const per = String(q.period || '');
+            if (state.period && per !== state.period) return;
+            const prev = byTenant[q.tenantId];
+            if (!prev || per > String(prev.period || '')) byTenant[q.tenantId] = q;
+          });
+          // 账期下拉候选（去重倒序）
+          const periods = [];
+          list.forEach(function (q) {
+            if (q && q.period && periods.indexOf(String(q.period)) === -1) periods.push(String(q.period));
+          });
+          periods.sort().reverse();
+          $('#periodFilter').html('<option value="">最新一期</option>' + periods.map(function (p) {
+            return '<option value="' + escAttr(p) + '"' + (state.period === p ? ' selected' : '') + '>' + escHtml(p) + '</option>';
+          }).join(''));
+          renderTable(byTenant);
+        }).fail(function (xhr) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="6">' + escHtml(xhrMsg(xhr, '加载失败')) + '</td></tr>');
+        });
+      }
+
+      function renderTable(byTenant) {
+        const ids = Object.keys(byTenant).sort(function (a, b) { return Number(a) - Number(b); });
+        if (!ids.length) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="6">暂无租户配额记录</td></tr>');
+          return;
+        }
+        $('#tbody').html(ids.map(function (tid) {
+          const q = byTenant[tid];
+          const tPct = q.tokenLimit > 0 ? Math.min(100, Math.round((q.tokenUsed || 0) / q.tokenLimit * 100)) : 0;
+          const tColor = tPct >= (q.alertThreshold || 80) ? 'bg-danger' : (tPct > 50 ? 'bg-warning' : 'bg-success');
+          const dPct = q.derivationLimit > 0 ? Math.min(100, Math.round((q.derivationUsed || 0) / q.derivationLimit * 100)) : 0;
+          const dColor = dPct > 80 ? 'bg-danger' : (dPct > 50 ? 'bg-warning' : 'bg-success');
+          return '<tr>'
+            + '<td><strong>租户 #' + escHtml(tid) + '</strong></td>'
+            + '<td>' + escHtml(q.period || '-') + '</td>'
+            + '<td><div class="d-flex justify-content-between waterfall"><span>' + fmtShort(q.tokenUsed) + ' / ' + fmtShort(q.tokenLimit) + '</span><span>' + tPct + '%</span></div>'
+            + '<div class="progress" style="height:6px;"><div class="progress-bar ' + tColor + '" style="width:' + tPct + '%"></div></div></td>'
+            + '<td><div class="d-flex justify-content-between waterfall"><span>' + fmtShort(q.derivationUsed) + ' / ' + fmtShort(q.derivationLimit) + '</span><span>' + dPct + '%</span></div>'
+            + '<div class="progress" style="height:6px;"><div class="progress-bar ' + dColor + '" style="width:' + dPct + '%"></div></div></td>'
+            + '<td class="num-cell">' + fmtMoney(q.monthlyCost) + '</td>'
+            + '<td><button class="btn btn-sm btn-outline-primary gov-write a-sub" data-tenant="' + escAttr(tid) + '">订阅变更</button></td>'
+            + '</tr>';
+        }).join(''));
+        if (!perm.write) $('#tbody .gov-write').hide();
+      }
+
+      // ---- 在架套餐（P1 enabled=true；订阅变更下拉数据源） ----
+      function loadPlans(cb) {
+        if (plans.length) { if (cb) cb(); return; }
+        API.bizGet('/api/v1/plans?page=1&size=200&enabled=true').done(function (resp) {
+          if (!ok(resp)) { if (cb) cb(); return; }
+          const data = resp.data || {};
+          plans = (data.records || data.list || []).filter(function (p) { return p && p.code; });
+          if (cb) cb();
+        }).fail(function () { if (cb) cb(); });
+      }
+
+      // ---- 订阅变更（U2 扩展：{planCode} 提交；确认后回显 U1 口径快照） ----
+      $('#tbody').on('click', '.a-sub', function () {
+        const tid = $(this).data('tenant');
+        $('#sTenantId').val(tid);
+        $('#sResult').addClass('d-none');
+        $('#subTitle').text('订阅变更（套餐应用）— 租户 #' + tid);
+        loadPlans(function () {
+          $('#sPlanCode').html(plans.length
+            ? plans.map(function (p) {
+              return '<option value="' + escAttr(p.code) + '">' + escHtml(p.name + '（' + p.code + '，月价 ' + fmtMoney(p.monthlyPrice) + ' 元）') + '</option>';
+            }).join('')
+            : '<option value="">暂无在架套餐（请先在"套餐管理"上架）</option>');
+          syncPlanHint();
+          new bootstrap.Modal('#subModal').show();
+        });
+      });
+
+      function syncPlanHint() {
+        const code = $('#sPlanCode').val();
+        const p = plans.filter(function (x) { return x.code === code; })[0];
+        if (!p) { $('#sPlanHint').html(''); return; }
+        $('#sPlanHint').html('SLA 档 ' + DICT.badge('slaLevel', p.slaLevel)
+          + ' · 超量单价 ' + escHtml(fmtMoney(p.tokenOveragePrice)) + ' 元/千token'
+          + ' · 标准三档同编码在架唯一，应用后本月配额按 ' + escHtml(fmtMoney(p.monthlyPrice)) + ' 元月费口径覆写');
+      }
+      $('#sPlanCode').on('change', syncPlanHint);
+
+      $('#sApplyBtn').on('click', function () {
+        const tid = $('#sTenantId').val();
+        const planCode = $('#sPlanCode').val();
+        if (!planCode) { alert('请选择在架套餐'); return; }
+        if (!confirm('确认对租户 #' + tid + ' 应用套餐「' + planCode + '」？五类落库单事务生效，操作将记入审计。')) return;
+        const $btn = $(this).prop('disabled', true);
+        // U2 扩展（契约 §2）：planCode 非空即套餐应用模式（edition/expireTime 不传——同传 400 互斥）
+        API.bizPut('/api/v1/tenant/' + tid + '/subscription', { planCode: planCode }).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '应用失败')); return; }
+          const d = resp.data || {};
+          $('#sSnapshot').html('版本：<strong>' + escHtml(d.editionName || d.edition || '-') + '</strong>'
+            + ' · 套餐：<strong>' + escHtml(d.planName || d.planCode || '-') + '</strong>'
+            + ' · SLA 档：' + DICT.badge('slaLevel', d.slaLevel)
+            + '<br>到期时间：' + escHtml(d.expireTime || '未设置（套餐订阅不过期）')
+            + ' · 剩余天数：' + (d.daysLeft != null ? escHtml(String(d.daysLeft)) + ' 天' : '—')
+            + ' · 试用态：' + (d.trial === true ? '是' : '否'));
+          $('#sResult').removeClass('d-none');
+          loadTenants(); // 月成本/配额已按套餐覆写，刷新聚合行
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '应用失败')); })
+          .always(function () { $btn.prop('disabled', false); });
+      });
+
+      // ---- 事件 ----
+      $('#periodFilter').on('change', function () { state.period = $(this).val(); loadTenants(); });
+      $('#refreshBtn').on('click', function () { plans = []; loadTenants(); });
+
+      // ---- 工具 ----
+      function fmtMoney(v) {
+        if (v == null || isNaN(Number(v))) return '-';
+        return Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+      /** 大数缩写（万/亿），title 悬停精确值 */
+      function fmtShort(v) {
+        if (v == null || isNaN(Number(v))) return '-';
+        const n = Number(v);
+        const exact = n.toLocaleString('en-US');
+        if (n >= 1e8) return '<span title="' + exact + '">' + (n / 1e8).toFixed(2) + ' 亿</span>';
+        if (n >= 1e4) return '<span title="' + exact + '">' + (n / 1e4).toFixed(2) + ' 万</span>';
+        return exact;
+      }
+      function escHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+      function escAttr(s) { return escHtml(s); }
+
+      loadTenants();
+    });
+  </script>
+</body>
+</html>

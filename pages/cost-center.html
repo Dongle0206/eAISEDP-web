@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>费用中心 - eAISEDP</title>
+  <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
+  <link rel="stylesheet" href="../assets/css/app.css">
+  <style>
+    body { background:#f0f2f5; }
+    .page-wrap { padding:20px; }
+    .section { background:#fff; border-radius:6px; padding:16px 20px; margin-bottom:16px; }
+    .toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+    .toolbar .spacer { flex:1; }
+    .quota-card { border:1px solid #e8e8e8; border-radius:8px; padding:12px 14px; }
+    .quota-card h6 { font-size:13px; color:#666; margin-bottom:6px; }
+    .quota-num { font-size:13px; font-family:Consolas,monospace; }
+    .alert-line { background:#fff1f0; color:#f5222d; border-radius:6px; padding:2px 8px; font-size:12px; margin-top:4px; display:inline-block; }
+    .warn-line { background:#fffbe6; color:#d48806; border-radius:6px; padding:2px 8px; font-size:12px; margin-top:4px; display:inline-block; }
+    .plan-line { font-size:13px; margin-bottom:4px; }
+    .sla-promise { font-size:13px; color:#52c41a; }
+    .empty-row td { text-align:center; color:#999; padding:40px 0; }
+    .pager { display:flex; align-items:center; justify-content:flex-end; gap:6px; margin-top:12px; }
+    .num-cell { font-family:Consolas,monospace; }
+    .sec-title { font-weight:700; font-size:13px; color:#1677ff; margin-bottom:2px; }
+    .sec-body { font-size:13px; color:#333; background:#fafafa; border-radius:6px; padding:8px 12px; margin-bottom:10px; }
+  </style>
+</head>
+<body>
+  <div class="page-wrap">
+    <!-- 本期用量 + 当前套餐（C1） -->
+    <div class="section">
+      <div class="toolbar">
+        <h5 class="mb-0">费用中心</h5>
+        <span class="text-muted" style="font-size:13px;">本期用量为实时水位（仅展示，非账单口径）；账单以后端出账为准</span>
+        <div class="spacer"></div>
+        <button id="refreshBtn" class="btn btn-outline-secondary btn-sm">刷新</button>
+      </div>
+      <div class="row g-3" id="quotaCards">
+        <div class="col-12 text-center text-muted py-4">加载中...</div>
+      </div>
+      <hr class="my-3">
+      <div id="planCard"><span class="text-muted">当前套餐加载中...</span></div>
+    </div>
+
+    <!-- 历史账单（C2：仅 issued/paid——后端强制过滤，前端不重复实现） -->
+    <div class="section">
+      <div class="toolbar">
+        <h6 class="mb-0">历史账单</h6>
+        <div class="spacer"></div>
+        <span class="text-muted" style="font-size:13px;">出账后可见（草稿期不可见）· 应缴 = 套餐基础费 + 超量费</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-bordered table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th style="width:90px;">账期</th>
+              <th style="width:120px;">套餐</th>
+              <th style="width:120px;">月价（元）</th>
+              <th style="width:120px;">超量费（元）</th>
+              <th style="width:130px;">应缴（元）</th>
+              <th style="width:90px;">状态</th>
+              <th style="width:170px;">标记时间</th>
+              <th style="width:90px;">操作</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr class="empty-row"><td colspan="8">加载中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <span id="pageInfo" class="text-muted me-2" style="font-size:13px;"></span>
+        <button id="prevBtn" class="btn btn-outline-secondary btn-sm">上一页</button>
+        <button id="nextBtn" class="btn btn-outline-secondary btn-sm">下一页</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 账单详情 + 超量明细（C3：detail 展开） -->
+  <div class="modal fade" id="viewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="viewTitle">账单明细</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="viewBody"></div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">关闭</button></div>
+    </div></div>
+  </div>
+
+  <script src="../assets/js/jquery-3.7.1.min.js"></script>
+  <script src="../assets/js/bootstrap.bundle.min.js"></script>
+  <script src="../config.js"></script>
+  <script src="../assets/js/i18n.js"></script>
+  <script src="../assets/js/api.js"></script>
+  <script src="../assets/js/governance-dict.js"></script>
+  <script src="../assets/js/sanitize.js"></script>
+  <script>
+    $(function () {
+      const API = window.EAISELP_API;
+      const CFG = window.EAISELP_CONFIG;
+      const DICT = window.GOV_DICT;
+      if (!API.getToken()) { location.href = '../' + CFG.LOGIN_PAGE; return; }
+
+      const state = { page: 1, size: 10, total: 0 };
+
+      // ---- 响应工具：兼容 code=0（既有 R.ok）与 code=200（契约示例形态） ----
+      function ok(r) { return !!r && (r.code === 0 || r.code === 200); }
+      function rmsg(r, d) { return (r && (r.msg || r.message)) || d || '操作失败'; }
+      function xhrMsg(xhr, d) { return (xhr.responseJSON && (xhr.responseJSON.msg || xhr.responseJSON.message)) || d || ('请求失败（' + xhr.status + '）'); }
+
+      // ---- C1：本期用量四维水位 + 当前套餐卡 ----
+      function loadSummary() {
+        $('#quotaCards').html('<div class="col-12 text-center text-muted py-4">加载中...</div>');
+        $('#planCard').html('<span class="text-muted">当前套餐加载中...</span>');
+        API.bizGet('/api/v1/cost-center/summary').done(function (resp) {
+          if (!ok(resp)) {
+            $('#quotaCards').html('<div class="col-12 text-danger" style="font-size:13px;">' + escHtml(rmsg(resp, '加载失败')) + '</div>');
+            $('#planCard').html('');
+            return;
+          }
+          const d = resp.data || {};
+          renderQuota(d.quota || {});
+          renderPlan(d.plan);
+        }).fail(function (xhr) {
+          $('#quotaCards').html('<div class="col-12 text-danger" style="font-size:13px;">' + escHtml(xhrMsg(xhr, '加载失败')) + '</div>');
+          $('#planCard').html('');
+        });
+      }
+
+      function bar(pct, dangerAt) {
+        const color = pct >= 100 ? 'bg-danger' : (pct >= dangerAt ? 'bg-warning' : 'bg-success');
+        return '<div class="progress" style="height:8px;"><div class="progress-bar ' + color + '" style="width:' + Math.min(100, pct) + '%"></div></div>';
+      }
+
+      function renderQuota(q) {
+        const tk = q.token || {};
+        const tkPct = tk.limit > 0 ? Math.round((tk.used || 0) / tk.limit * 100) : 0;
+        const threshold = tk.alertThreshold != null ? tk.alertThreshold : 80;
+        const tkTip = tkPct >= 100
+          ? '<span class="alert-line">已超配额：超出部分将按套餐超量单价计入账单</span>'
+          : (tkPct >= threshold ? '<span class="warn-line">已接近配额阈值（' + threshold + '%）</span>' : '');
+        const cs = q.case || {};
+        const csPct = cs.limit > 0 ? Math.round((cs.used || 0) / cs.limit * 100) : 0;
+        const dv = q.derivation || {};
+        const dvPct = dv.limit > 0 ? Math.round((dv.used || 0) / dv.limit * 100) : 0;
+        const st = q.storage || {};
+        const stPct = st.limitMb > 0 ? Math.round((st.usedMb || 0) / st.limitMb * 100) : 0;
+        $('#quotaCards').html(
+          '<div class="col-md-3"><div class="quota-card"><h6>Token 用量（' + escHtml(q.period || '当期') + '）</h6>'
+          + '<div class="quota-num">' + fmtShort(tk.used) + ' / ' + fmtShort(tk.limit) + '（' + tkPct + '%）</div>'
+          + bar(tkPct, threshold) + tkTip + '</div></div>'
+          + '<div class="col-md-3"><div class="quota-card"><h6>Case 用量</h6>'
+          + '<div class="quota-num">' + fmtShort(cs.used) + ' / ' + fmtShort(cs.limit) + '（' + csPct + '%）</div>'
+          + bar(csPct, 80) + '</div></div>'
+          + '<div class="col-md-3"><div class="quota-card"><h6>派生用量</h6>'
+          + '<div class="quota-num">' + fmtShort(dv.used) + ' / ' + fmtShort(dv.limit) + '（' + dvPct + '%）</div>'
+          + bar(dvPct, 80) + '</div></div>'
+          + '<div class="col-md-3"><div class="quota-card"><h6>存储用量</h6>'
+          + '<div class="quota-num">' + fmtShort(st.usedMb) + ' MB / ' + fmtShort(st.limitMb) + ' MB（' + stPct + '%）</div>'
+          + bar(stPct, 80) + '</div></div>');
+      }
+
+      function renderPlan(p) {
+        // trial/未绑定 → plan=null（C1 契约）；SLA 承诺文案统一取 governance-dict slaLevel 组（D-17 唯一集中处）
+        if (!p || !p.code) {
+          $('#planCard').html('<span class="text-muted" style="font-size:13px;">当前未绑定套餐（试用或未应用套餐）——试用不产生账单；如需升级请联系平台管理员。</span>');
+          return;
+        }
+        const sla = DICT.data.slaLevel[p.slaLevel];
+        $('#planCard').html(
+          '<div class="plan-line"><strong>' + escHtml(p.name || p.code) + '</strong>（' + escHtml(p.code) + '）'
+          + ' · 月价 <span class="num-cell">' + fmtMoney(p.monthlyPrice) + '</span> 元'
+          + ' · 超量单价 <span class="num-cell">' + fmtMoney(p.tokenOveragePrice) + '</span> 元/千token'
+          + ' · SLA 档 ' + DICT.badge('slaLevel', p.slaLevel) + '</div>'
+          + (sla
+            ? '<div class="sla-promise">' + escHtml(sla.promise) + '<br>' + escHtml(sla.availability) + '</div>'
+            : '')
+          + '<div class="text-muted" style="font-size:12px;">套餐绑定后即时生效；超量部分出账时按千token向上取整计费。</div>');
+      }
+
+      // ---- C2：历史账单（本租户，后端已强制 issued/paid）----
+      function loadInvoices() {
+        $('#tbody').html('<tr class="empty-row"><td colspan="8">加载中...</td></tr>');
+        API.bizGet('/api/v1/cost-center/invoices?page=' + state.page + '&size=' + state.size).done(function (resp) {
+          if (!ok(resp)) {
+            $('#tbody').html('<tr class="empty-row"><td colspan="8">' + escHtml(rmsg(resp, '加载失败')) + '</td></tr>');
+            $('#pageInfo').html('');
+            return;
+          }
+          const data = resp.data || {};
+          const list = data.records || data.list || [];
+          state.total = data.total != null ? data.total : list.length;
+          if (!list.length) {
+            $('#tbody').html('<tr class="empty-row"><td colspan="8">暂无历史账单（每月 1 日出账，出账后此处可见）</td></tr>');
+          } else {
+            $('#tbody').html(list.map(function (v) {
+              const prorated = Number(v.prorationAmount || 0) > 0;
+              return '<tr>'
+                + '<td><strong>' + escHtml(v.period || '') + '</strong></td>'
+                + '<td>' + escHtml(v.planCode || '-') + '</td>'
+                + '<td class="num-cell">' + fmtMoney(prorated ? v.prorationAmount : v.planPrice)
+                + (prorated ? ' <span style="font-size:11px;color:#d48806;">（首月折算）</span>' : '') + '</td>'
+                + '<td class="num-cell">' + fmtMoney(v.overageAmount) + '</td>'
+                + '<td class="num-cell"><strong>' + fmtMoney(v.totalAmount) + '</strong></td>'
+                + '<td>' + DICT.badge('invoiceStatus', v.status) + '</td>'
+                + '<td style="font-size:12px;">' + escHtml(fmtTime(v.issuedTime) || '-') + '<br>' + escHtml(fmtTime(v.paidTime) || '-') + '</td>'
+                + '<td><button class="btn btn-sm btn-outline-primary a-view" data-id="' + v.id + '">明细</button></td>'
+                + '</tr>';
+            }).join(''));
+          }
+          renderPager();
+        }).fail(function (xhr) {
+          $('#tbody').html('<tr class="empty-row"><td colspan="8">' + escHtml(xhrMsg(xhr, '加载失败')) + '</td></tr>');
+        });
+      }
+
+      function renderPager() {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        $('#pageInfo').text('共 ' + state.total + ' 条，第 ' + state.page + '/' + totalPages + ' 页');
+        $('#prevBtn').prop('disabled', state.page <= 1);
+        $('#nextBtn').prop('disabled', state.page >= totalPages);
+      }
+
+      // ---- C3：账单详情 + 超量明细（draft/他租户 → 后端 404）----
+      $('#tbody').on('click', '.a-view', function () {
+        const id = $(this).data('id');
+        API.bizGet('/api/v1/cost-center/invoices/' + id).done(function (resp) {
+          if (!ok(resp)) { alert(rmsg(resp, '加载失败')); return; }
+          const v = resp.data || {};
+          let d = {};
+          if (v.detail && typeof v.detail === 'object') d = v.detail;
+          else if (typeof v.detail === 'string') { try { d = JSON.parse(v.detail); } catch (e) { d = {}; } }
+          const plan = d.plan || {};
+          const pr = d.firstMonthProration;
+          const prorated = Number(v.prorationAmount || 0) > 0;
+          $('#viewTitle').html(escHtml(v.period || '') + ' 账单明细 ' + DICT.badge('invoiceStatus', v.status));
+          $('#viewBody').html(
+            '<div class="sec-title">金额（后端出账为准）</div><div class="sec-body">'
+            + '套餐月价：' + fmtMoney(v.planPrice) + ' 元'
+            + (prorated ? ' → 首月折算实收：' + fmtMoney(v.prorationAmount) + ' 元' : '')
+            + ' · 超量费：' + fmtMoney(v.overageAmount) + ' 元'
+            + '<br>应缴合计：<strong style="font-size:16px;">' + fmtMoney(v.totalAmount) + ' 元</strong></div>'
+            + '<div class="sec-title">出账套餐快照</div><div class="sec-body">' + escHtml(plan.name || v.planCode || '-')
+            + '（' + escHtml(plan.code || v.planCode || '-') + '） · 月价 ' + fmtMoney(plan.monthlyPrice)
+            + ' 元 · 超量单价 ' + fmtMoney(plan.tokenOveragePrice) + ' 元/千token · SLA ' + DICT.badge('slaLevel', plan.slaLevel) + '</div>'
+            + '<div class="sec-title">用量与超量明细</div><div class="sec-body">Token 用量：' + fmtShort(d.tokenUsed) + ' / 配额 ' + fmtShort(d.tokenLimit)
+            + '<br>超额 token：' + fmtShort(d.tokenOverageTokens) + ' · 计费千token数（向上取整）：' + escHtml(d.ktokenBilled != null ? String(d.ktokenBilled) : '-')
+            + '<br>派生次数：' + escHtml(d.derivationCount != null ? String(d.derivationCount) : '-')
+            + ' · Case 数：' + escHtml(d.caseCount != null ? String(d.caseCount) : '-')
+            + ' · 存储用量：' + fmtShort(d.storageUsedMb) + ' MB</div>'
+            + (pr && pr.prorated === true
+              ? '<div class="sec-title">首月折算参数</div><div class="sec-body">创建日期：' + escHtml(pr.createdDate || '-')
+              + ' · 剩余天数：' + escHtml(pr.remainingDays != null ? String(pr.remainingDays) : '-') + '（含创建当天）'
+              + ' · 当月天数：' + escHtml(pr.daysInMonth != null ? String(pr.daysInMonth) : '-') + '</div>'
+              : '')
+            + '<div class="text-muted" style="font-size:13px;">出账时间：' + escHtml(fmtTime(v.createTime) || '-')
+            + (v.issuedTime ? ' · 出账标记：' + escHtml(fmtTime(v.issuedTime)) : '')
+            + (v.paidTime ? ' · 收款标记：' + escHtml(fmtTime(v.paidTime)) : '') + '</div>');
+          new bootstrap.Modal('#viewModal').show();
+        }).fail(function (xhr) { alert(xhrMsg(xhr, '加载失败')); });
+      });
+
+      // ---- 事件 ----
+      $('#refreshBtn').on('click', function () { loadSummary(); loadInvoices(); });
+      $('#prevBtn').on('click', function () { if (state.page > 1) { state.page--; loadInvoices(); } });
+      $('#nextBtn').on('click', function () {
+        const totalPages = Math.max(1, Math.ceil(state.total / state.size));
+        if (state.page < totalPages) { state.page++; loadInvoices(); }
+      });
+
+      // ---- 工具 ----
+      function fmtTime(t) {
+        if (!t) return '';
+        return String(t).replace('T', ' ').substring(0, 19);
+      }
+      function fmtMoney(v) {
+        if (v == null || isNaN(Number(v))) return '-';
+        return Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+      /** 大数缩写（万/亿），title 悬停精确值 */
+      function fmtShort(v) {
+        if (v == null || isNaN(Number(v))) return '-';
+        const n = Number(v);
+        const exact = n.toLocaleString('en-US');
+        if (n >= 1e8) return '<span title="' + exact + '">' + (n / 1e8).toFixed(2) + ' 亿</span>';
+        if (n >= 1e4) return '<span title="' + exact + '">' + (n / 1e4).toFixed(2) + ' 万</span>';
+        return exact;
+      }
+      function escHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function (ch) {
+          return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+        });
+      }
+
+      loadSummary();
+      loadInvoices();
+    });
+  </script>
+</body>
+</html>
